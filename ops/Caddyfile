@@ -1,0 +1,11 @@
+# Set PACKAGE_HOST in Caddy's service environment to the public HTTPS hostname.
+{$PACKAGE_HOST} {
+    root * /srv/pkg
+    file_server {
+        hide .stage-* .staging.*
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Cache-Control "no-cache"
+    }
+}

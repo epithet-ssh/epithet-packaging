@@ -1,0 +1,148 @@
+#!/bin/sh
+
+set -eu
+
+PACKAGING_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+. "$PACKAGING_ROOT/scripts/common.sh"
+: "${POUDRIERE_JAIL:?}" "${POUDRIERE_PORTS:?}" "${PORT_ORIGIN:?}"
+: "${PORT_DIR:?}" "${POUDRIERE_PACKAGES:?}" "${POUDRIERE_PACKAGE_BRANCH:?}"
+: "${DISTFILES_CACHE:?}" "${PUBLIC_ROOT:?}" "${SIGNING_KEY:?}" "${REPOSITORY_URL:?}" "${ABI:?}"
+PORT_TEMPLATE=$PACKAGING_ROOT/freebsd/port
+ABI_ROOT=$PUBLIC_ROOT/$ABI
+LOCK_FILE=/var/run/epithet-pkg-publish.lock
+
+usage() {
+    cat >&2 <<EOF
+usage: epithet-pkg-publish publish RELEASE_DIRECTORY
+       epithet-pkg-publish status
+       epithet-pkg-publish rollback X.Y.Z[_N]
+EOF
+    exit 64
+}
+
+require_root() {
+    [ "$(id -u)" -eq 0 ] || {
+        echo "epithet-pkg-publish must run as root" >&2
+        exit 1
+    }
+}
+
+current_version() {
+    if [ -L "$ABI_ROOT/latest" ]; then
+        basename "$(readlink "$ABI_ROOT/latest")"
+    else
+        echo none
+    fi
+}
+
+build_package() {
+    # The cache is the same DISTFILES_CACHE used by poudriere.conf. The source
+    # archive already includes Go dependencies; builds need no source forge.
+    mkdir -p "$DISTFILES_CACHE" "$PORT_DIR"
+    distfile=epithet-${VERSION}-${SOURCE_COMMIT}.tar.gz
+    cp "$RELEASE_DIR/source.tar.gz" "$DISTFILES_CACHE/$distfile"
+    cp -R "$PORT_TEMPLATE"/. "$PORT_DIR"/
+    sed \
+        -e "s/^DISTVERSION=.*/DISTVERSION= ${VERSION}/" \
+        -e "s/^EPITHET_COMMIT=.*/EPITHET_COMMIT= ${SOURCE_COMMIT}/" \
+        -e "s/^EPITHET_BUILD_DATE=.*/EPITHET_BUILD_DATE= ${BUILD_DATE}/" \
+        "$PORT_DIR/Makefile" > "$PORT_DIR/Makefile.new"
+    mv "$PORT_DIR/Makefile.new" "$PORT_DIR/Makefile"
+    make -C "$PORT_DIR" BATCH=yes DISTDIR="$DISTFILES_CACHE" clean makesum
+    poudriere testport -b "$POUDRIERE_PACKAGE_BRANCH" -j "$POUDRIERE_JAIL" -p "$POUDRIERE_PORTS" -o "$PORT_ORIGIN"
+    poudriere bulk -C -b "$POUDRIERE_PACKAGE_BRANCH" -j "$POUDRIERE_JAIL" -p "$POUDRIERE_PORTS" "$PORT_ORIGIN"
+    BUILT_PACKAGE=$POUDRIERE_PACKAGES/All/epithet-${VERSION}.pkg
+    [ -f "$BUILT_PACKAGE" ] || { echo "poudriere did not produce epithet $VERSION" >&2; exit 1; }
+}
+
+publish() {
+    load_release "$1"
+    "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" verify-source "$RELEASE_DIR"
+    pub_package_version=$VERSION
+    pub_commit=$SOURCE_COMMIT
+    if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" needed freebsd "$RELEASE_DIR"; then
+        :
+    else
+        code=$?
+        [ "$code" -eq 3 ] || exit "$code"
+        return
+    fi
+    if [ -d "$ABI_ROOT/releases/$pub_package_version" ]; then
+        cmp "$RELEASE_DIR/release.json" "$ABI_ROOT/releases/$pub_package_version/release.json"
+        # Only tested candidates are retained; finish an interrupted promotion.
+        rollback "$pub_package_version"
+        return
+    fi
+    mkdir -p "$ABI_ROOT/releases"
+    work=$(mktemp -d "$ABI_ROOT/.staging.XXXXXX")
+    trap 'rm -rf "$work"' EXIT
+    trap 'exit 130' HUP INT TERM
+
+    previous_package=
+    pub_current_version=$(current_version)
+    if [ "$pub_current_version" != none ]; then
+        pub_current_package=$(find -L "$ABI_ROOT/latest/All" -maxdepth 1 -type f -name "epithet-${pub_current_version}.pkg" | head -n 1)
+        [ -n "$pub_current_package" ] || {
+            echo "published repository does not contain epithet ${pub_current_version}" >&2
+            exit 1
+        }
+        previous_package=$work/$(basename "$pub_current_package")
+        cp "$pub_current_package" "$previous_package"
+    fi
+
+    build_package
+    current_built=$BUILT_PACKAGE
+    printf "building signed candidate for %s (%s)\n" "$pub_package_version" "$pub_commit"
+    candidate=$work/repository
+    mkdir -p "$candidate/All"
+    chmod 0755 "$candidate" "$candidate/All"
+    cp "$current_built" "$candidate/All/"
+    pkg repo "$candidate" "$SIGNING_KEY"
+
+    public_key=$work/epithet.pub
+    openssl rsa -in "$SIGNING_KEY" -pubout -out "$public_key"
+    EPITHET_PKG_PUBLIC_KEY=$public_key "$PACKAGING_ROOT/freebsd/ops/epithet-pkg-test" \
+        "$candidate" "$pub_package_version" ${previous_package:+"$previous_package"}
+
+    mkdir -p "$ABI_ROOT/releases" "$PUBLIC_ROOT/keys"
+    cp "$RELEASE_DIR/release.json" "$candidate/release.json"
+    install -m 0444 "$public_key" "$PUBLIC_ROOT/keys/epithet.pub"
+    mv "$candidate" "$ABI_ROOT/releases/$pub_package_version"
+    ln -s "releases/$pub_package_version" "$ABI_ROOT/.latest.$$"
+    mv -fh "$ABI_ROOT/.latest.$$" "$ABI_ROOT/latest"
+    printf '%s\n' "$pub_package_version" > "$ABI_ROOT/published-version"
+    printf 'published epithet %s at %s/%s/latest\n' "$pub_package_version" "$REPOSITORY_URL" "$ABI"
+}
+
+rollback() {
+    rollback_version=${1:-}
+    if ! printf '%s\n' "$rollback_version" | awk '/^[0-9]+\.[0-9]+\.[0-9]+(_[1-9][0-9]*)?$/ { valid = 1 } END { exit !valid }'; then
+        echo "invalid rollback version: $rollback_version" >&2
+        exit 64
+    fi
+    [ -d "$ABI_ROOT/releases/$rollback_version" ] || {
+        echo "release ${rollback_version} is not retained" >&2
+        exit 1
+    }
+    ln -s "releases/$rollback_version" "$ABI_ROOT/.latest.$$"
+    mv -fh "$ABI_ROOT/.latest.$$" "$ABI_ROOT/latest"
+    printf '%s\n' "$rollback_version" > "$ABI_ROOT/published-version"
+    echo "rolled back repository metadata to epithet ${rollback_version}"
+}
+
+require_root
+command=${1:-}
+case "$command" in
+status)
+    printf 'published: %s\n' "$(current_version)"
+    ;;
+publish|rollback)
+    shift
+    [ "$#" -eq 1 ] || usage
+    if [ "${EPITHET_PKG_LOCKED:-}" != 1 ]; then
+        exec env EPITHET_PKG_LOCKED=1 lockf -k -t 0 "$LOCK_FILE" "$0" "$command" "$1"
+    fi
+    "$command" "$1"
+    ;;
+*) usage ;;
+esac

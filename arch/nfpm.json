@@ -1,0 +1,14 @@
+{
+  "name": "epithet",
+  "arch": "amd64",
+  "platform": "linux",
+  "version": "0.0.0",
+  "release": "1",
+  "description": "SSH certificate authorization and host enrollment",
+  "license": "Apache-2.0",
+  "depends": ["openssh", "ca-certificates"],
+  "contents": [
+    {"src": "dist/epithet", "dst": "/usr/bin/epithet", "file_info": {"mode": 493}},
+    {"src": "dist/LICENSE-2.0.txt", "dst": "/usr/share/licenses/epithet/LICENSE", "file_info": {"mode": 420}}
+  ]
+}

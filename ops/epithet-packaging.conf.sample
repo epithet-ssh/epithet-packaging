@@ -1,0 +1,32 @@
+# Trusted root-owned shell configuration. Install mode 0600 as
+# /usr/local/etc/epithet-packaging.conf. All paths must be absolute.
+# Source and tap can be hosted by any Git server; fill in deployment inputs.
+SOURCE_URL=
+SOURCE_CACHE=/var/db/epithet-packaging/source.git
+WORK_ROOT=/var/db/epithet-packaging/releases
+PUBLIC_ROOT=/srv/epithet-pkg
+REPOSITORY_URL=
+PROJECT_HOMEPAGE=
+
+# Persistent Linux VM, reachable using the builder's SSH configuration.
+# Pin its host key in known_hosts; use a dedicated account with Docker access.
+ARCH_SSH_TARGET=
+ARCH_IMAGE=archlinux:base
+ARCH_GNUPG_HOME=/var/db/epithet-packaging/gnupg
+ARCH_KEY_FINGERPRINT=
+
+# A dedicated checkout, existing branch, Git identity and push credentials.
+TAP_URL=
+TAP_BRANCH=main
+TAP_CHECKOUT=/var/db/epithet-packaging/homebrew-tap
+
+ABI=FreeBSD:15:amd64
+POUDRIERE_JAIL=151amd64
+POUDRIERE_PORTS=epithet
+PORT_ORIGIN=security/epithet
+PORT_DIR=/usr/local/poudriere/ports/epithet/security/epithet
+POUDRIERE_PACKAGES=/usr/local/poudriere/data/packages/151amd64-epithet
+POUDRIERE_PACKAGE_BRANCH=latest
+# Keep this identical to DISTFILES_CACHE in poudriere.conf.
+DISTFILES_CACHE=/usr/ports/distfiles
+SIGNING_KEY=/usr/local/etc/ssl/keys/epithet-pkg.key

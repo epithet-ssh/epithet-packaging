@@ -1,0 +1,3 @@
+# Optional fallback. Install inside the builder jail after observed publication.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+* * * * * root /usr/local/libexec/epithet-packaging/bin/epithet-release poll >> /var/log/epithet-packaging.log 2>&1

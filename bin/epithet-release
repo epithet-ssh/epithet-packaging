@@ -1,0 +1,78 @@
+#!/bin/sh
+# Run only on the configured builder. A source tag and commit are the release
+# boundary; no forge release, workflow status, or downloaded executable is used.
+set -eu
+. "$(dirname -- "$0")/../scripts/common.sh"
+: "${WORK_ROOT:?Set WORK_ROOT in the packaging config}"
+
+usage() {
+    echo 'usage: epithet-release release vX.Y.Z FULL_COMMIT | poll | status' >&2
+    exit 64
+}
+[ "$#" -gt 0 ] || usage
+case "$1" in
+    release) [ "$#" -eq 3 ] || usage ;;
+    poll|status) [ "$#" -eq 1 ] || usage ;;
+    *) usage ;;
+esac
+if [ "$1" = status ]; then
+    exec "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" status
+fi
+mkdir -p "$WORK_ROOT"
+if [ "${EPITHET_RELEASE_LOCKED:-}" != 1 ]; then
+    exec "$PYTHON" "$PACKAGING_ROOT/tools/lock.py" "$WORK_ROOT/release.lock" "$0" "$@"
+fi
+
+"$PACKAGING_ROOT/scripts/source.sh" fetch
+if [ "$1" = poll ]; then
+    tag=$(git --git-dir="$SOURCE_CACHE" tag --list | "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" latest)
+    [ -n "$tag" ] || { log 'No stable source tag found'; exit 0; }
+    commit=$(git --git-dir="$SOURCE_CACHE" rev-parse --verify "refs/tags/$tag^{commit}")
+else
+    tag=$2
+    commit=$3
+fi
+if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" pending "$tag" "$commit"; then
+    :
+else
+    code=$?
+    [ "$code" -eq 3 ] || exit "$code"
+    exit 0
+fi
+"$PACKAGING_ROOT/scripts/source.sh" prepare "$tag" "$commit"
+release_dir=$WORK_ROOT/$tag
+log "Release $tag ($commit); logs in $release_dir/logs"
+mkdir -p "$release_dir/logs"
+
+# Each target builds, tests where supported, then publishes its own result.
+# Waiting on one PID does not serialize execution: all jobs start first.
+target() {
+    name=$1
+    log "Starting $name"
+    if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" needed "$name" "$release_dir"; then
+        "$PACKAGING_ROOT/scripts/$name.sh" "$release_dir" || return $?
+        "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" "$name" "$release_dir" || return $?
+    else
+        code=$?
+        [ "$code" -eq 3 ] || return "$code"
+        log "$name is already published at this version or newer"
+    fi
+    log "Completed $name"
+}
+target freebsd > "$release_dir/logs/freebsd.log" 2>&1 & freebsd_pid=$!
+target arch > "$release_dir/logs/arch.log" 2>&1 & arch_pid=$!
+target macos > "$release_dir/logs/macos.log" 2>&1 & macos_pid=$!
+trap 'kill "$freebsd_pid" "$arch_pid" "$macos_pid" 2>/dev/null || :; wait; exit 130' INT TERM HUP
+result=0
+for entry in "freebsd:$freebsd_pid" "arch:$arch_pid" "macos:$macos_pid"; do
+    name=${entry%%:*}
+    pid=${entry#*:}
+    if wait "$pid"; then
+        log "$name succeeded"
+    else
+        result=1
+        log "$name FAILED; see $release_dir/logs/$name.log"
+        tail -n 12 "$release_dir/logs/$name.log" >&2
+    fi
+done
+exit "$result"
