@@ -25,13 +25,13 @@ Targets run and publish independently. GitHub Actions is optional.
 
 ## Remaining deployment acceptance
 
-- Provision the builder/server jail boundary and persistent Linux VM; validate
-  nested Poudriere and real Arch pacman tests in their intended runtimes.
-- Install reviewed scripts, configuration, SSH trust, signing keys, and tap
-  credentials. Preserve existing repository trust and retained packages.
-- Coordinate disabling the source GoReleaser tap writer with packaging cutover.
-- Observe a complete release; verify HTTPS client installs, an Arch cloud-init
-  boot, formula hashes, retained URLs, partial failure/retry, and monitoring.
+- Complete the production public-directory mount, existing FreeBSD signing-key
+  transfer, and production configuration after the required access approvals.
+  Preserve existing repository trust and retained packages.
+- Select a fresh source release for cutover; do not replace an already published
+  version with a rebuild.
+- Observe a complete production release; verify HTTPS client installs, an Arch
+  cloud-init boot, formula hashes, retained URLs, and monitoring.
 - Enable the optional one-minute source-tag poll only after those checks pass.
   An external event integration can invoke the explicit command immediately;
   no webhook service is implemented in v1.
@@ -62,3 +62,20 @@ Linux VM use a private network with outbound NAT; the existing public serving
 jail remains the package endpoint. Installation instructions now use HTTPS to
 bootstrap signing-key trust, including cloud-init. Native build validation and
 publication cutover are still pending.
+
+---
+# Log: 2026-09-17 native staging validation
+
+Provisioned the private builder jail and persistent Linux VM, and installed the
+reviewed scripts. A full staging release passed all three targets: native
+Poudriere/source tests and signed pkg install/upgrade/uninstall checks, real Arch
+pacman tests, and macOS archives with a local staging tap update. The upgrade
+check preserved enrollment state and operator-edited configuration. Partial
+failure left other targets successful and retryable. Production publication and
+scheduling remain disabled. The source GoReleaser tap writer is removed, and a
+dedicated tap deploy key is registered; production credential and mount cutover
+still need access approval.
+
+Native validation identified and fixed nested-jail mount/locked-memory settings,
+the login-capable Poudriere build account, and pkg test OSVERSION detection. The
+packaging unit/shell checks and GitHub checks pass.
