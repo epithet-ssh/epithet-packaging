@@ -3,6 +3,7 @@ DISTVERSION=	0.0.0
 PORTREVISION=	0
 CATEGORIES=	security
 
+MAINTAINER=	brianm@skife.org
 COMMENT=	SSH certificate authorization and host enrollment
 WWW=		https://github.com/epithet-ssh/epithet
 
