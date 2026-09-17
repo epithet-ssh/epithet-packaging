@@ -31,6 +31,10 @@ Epithet: {
 }
 EOF
 
+# The publisher exports ABI, which makes pkg guess the major-release OSVERSION.
+# These tests execute on the builder userland; preserve its actual minor version.
+export OSVERSION=$(uname -U)
+
 pkg_cmd() {
 	pkg -r "$root" -o REPOS_DIR="$repos_dir" "$@"
 }

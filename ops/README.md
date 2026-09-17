@@ -30,7 +30,9 @@ environment. DNS, TLS, network addresses and port mappings are deployment inputs
 
 Inside the builder, install Poudriere, Git, Go, Python 3.11+, GnuPG, and SSH.
 Use a Go version satisfying the source's go.mod. Python needs no third-party
-modules. Install a reviewed snapshot containing `bin`, `scripts`, `tools`, `arch`,
+modules. Set `PYTHON` in the packaging config if the interpreter is versioned
+(for example, `/usr/local/bin/python3.11`) and `python3` is not installed.
+Install a reviewed snapshot containing `bin`, `scripts`, `tools`, `arch`,
 `freebsd`, `macos`, and `tests` under `/usr/local/libexec/epithet-packaging`.
 Preserve executable bits and make the snapshot root-owned and not group/world
 writable. Install subsequent snapshots together while release jobs are stopped.
@@ -48,7 +50,20 @@ invocation. No credentials or deployment values belong in the repository.
 
 Install [poudriere.conf](../freebsd/ops/poudriere.conf) as
 `/usr/local/etc/poudriere.d/poudriere.conf`. Its `DISTFILES_CACHE` must match the
-packaging config. Create a Poudriere amd64 jail and ports tree matching the
+packaging config. The SSH integration tests require a login-capable build user;
+the sample uses `builder` rather than Poudriere's default `nobody` account with
+its `nologin` shell. Create the matching account **inside the builder jail**
+before the first build. Poudriere needs it there for ownership changes and creates
+the same account inside its disposable child jails:
+
+```sh
+. /usr/local/etc/poudriere.d/poudriere.conf
+pw groupadd "$PORTBUILD_GROUP" -g "$PORTBUILD_GID"
+pw useradd "$PORTBUILD_USER" -u "$PORTBUILD_UID" -g "$PORTBUILD_GROUP" \
+  -d /nonexistent -s /bin/sh -w no
+```
+
+Create a Poudriere amd64 jail and ports tree matching the
 configured names, ABI, package path, and desired FreeBSD release. For the sample:
 
 ```sh
