@@ -2,20 +2,28 @@
 
 ## Package installation
 
-Obtain the public repository URL, `epithet-arch.asc`, and its **full fingerprint**
-from the operator. Verify the fingerprint through the operator's trusted
-documentation before locally trusting the key; downloading a key from the
-repository alone does not establish its identity.
+Use the repository operator's HTTPS base URL. Download the signing key over
+HTTPS, trusting the server's TLS certificate for the initial key installation.
+Pacman then requires signatures on repository metadata and packages.
+
+Run as root, replacing `REPOSITORY_BASE_URL` with that HTTPS URL:
 
 ```sh
-gpg --show-keys --with-fingerprint epithet-arch.asc
+set -eu
+repository=REPOSITORY_BASE_URL
+key=$(mktemp)
+curl -fsS --proto '=https' "$repository/keys/epithet-arch.asc" -o "$key"
+fingerprint=$(gpg --batch --show-keys --with-colons "$key" |
+  awk -F: '$1 == "fpr" {print $10; exit}')
+[ -n "$fingerprint" ]
 pacman-key --init
-pacman-key --add epithet-arch.asc
-pacman-key --lsign-key "$EXPECTED_FINGERPRINT"
+pacman-key --add "$key"
+pacman-key --lsign-key "$fingerprint"
+rm -f "$key"
 ```
 
 Add the following to `/etc/pacman.conf`, replacing `REPOSITORY_BASE_URL` with the
-operator's HTTPS base URL. Keep pacman's literal `$arch` variable:
+same HTTPS URL. Keep pacman's literal `$arch` variable:
 
 ```ini
 [epithet]
@@ -29,19 +37,14 @@ does not configure sshd, enroll the host, or start services.
 
 ## cloud-init
 
-Use an Arch image that already supports cloud-init. Replace all three marked
-values before boot. Embed the reviewed public key so boot does not trust a key
-solely because it was downloaded from the package server. No AUR helper or build
-user is needed.
+Use an Arch image with cloud-init, curl, GnuPG, and CA certificates. Replace
+`REPOSITORY_BASE_URL` in both places with the operator's HTTPS URL. The machine
+fetches and trusts the signing key at boot; no key or fingerprint is embedded in
+user-data. No AUR helper or build user is needed.
 
 ```yaml
 #cloud-config
 write_files:
-  - path: /root/epithet-arch.asc
-    owner: root:root
-    permissions: '0600'
-    content: |
-      REPLACE_WITH_REVIEWED_ARMORED_PUBLIC_KEY
   - path: /etc/pacman.d/epithet.conf
     owner: root:root
     permissions: '0644'
@@ -55,13 +58,16 @@ write_files:
     content: |
       #!/bin/sh
       set -eu
-      expected=REPLACE_WITH_FULL_FINGERPRINT
-      actual=$(gpg --batch --show-keys --with-colons /root/epithet-arch.asc |
+      repository=REPOSITORY_BASE_URL
+      key=$(mktemp)
+      trap 'rm -f "$key"' EXIT
+      curl -fsS --proto '=https' "$repository/keys/epithet-arch.asc" -o "$key"
+      fingerprint=$(gpg --batch --show-keys --with-colons "$key" |
         awk -F: '$1 == "fpr" {print $10; exit}')
-      [ "$actual" = "$expected" ]
+      [ -n "$fingerprint" ]
       pacman-key --init
-      pacman-key --add /root/epithet-arch.asc
-      pacman-key --lsign-key "$expected"
+      pacman-key --add "$key"
+      pacman-key --lsign-key "$fingerprint"
       include='Include = /etc/pacman.d/epithet.conf'
       grep -Fxq "$include" /etc/pacman.conf || printf '\n%s\n' "$include" >> /etc/pacman.conf
       pacman -Syu --noconfirm epithet

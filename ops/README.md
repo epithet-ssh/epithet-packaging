@@ -88,7 +88,8 @@ installation needs a dedicated RSA pkg signing key and an OpenPGP signing key in
 Record the full OpenPGP fingerprint in `ARCH_KEY_FINGERPRINT`; export only its
 public key as `$PUBLIC_ROOT/keys/epithet-arch.asc`. FreeBSD publication exports
 `keys/epithet.pub`. Keep public files readable by the serving jail and private keys
-restricted to the builder. Distribute reviewed fingerprints to clients separately.
+restricted to the builder. Package installation fetches these public keys over
+HTTPS and trusts TLS for bootstrap; subsequent package updates require signatures.
 
 Configure Git author identity and noninteractive push credentials for the
 existing `TAP_BRANCH` at `TAP_URL`. `TAP_CHECKOUT` is dedicated to this publisher.

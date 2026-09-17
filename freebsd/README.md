@@ -7,9 +7,24 @@ installation keys and client repository configuration do not belong in Git.
 
 ## Package installation
 
-Install the operator's reviewed FreeBSD public key as
-`/usr/local/etc/pkg/keys/epithet.pub`. In
-`/usr/local/etc/pkg/repos/Epithet.conf`, use:
+Use the repository operator's HTTPS base URL. Download the signing key over
+HTTPS, trusting the server's TLS certificate for initial key installation. Pkg
+then verifies repository signatures with that key.
+
+Run as root, replacing `REPOSITORY_BASE_URL` with that HTTPS URL:
+
+```sh
+set -eu
+repository=REPOSITORY_BASE_URL
+case "$repository" in https://*) ;; *) echo 'HTTPS repository URL required' >&2; exit 1 ;; esac
+key=$(mktemp)
+fetch -o "$key" "$repository/keys/epithet.pub"
+install -d -m 0755 /usr/local/etc/pkg/keys /usr/local/etc/pkg/repos
+install -m 0644 "$key" /usr/local/etc/pkg/keys/epithet.pub
+rm -f "$key"
+```
+
+In `/usr/local/etc/pkg/repos/Epithet.conf`, use:
 
 ```ucl
 Epithet: {
