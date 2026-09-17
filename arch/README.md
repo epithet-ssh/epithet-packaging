@@ -6,34 +6,22 @@ Use the repository operator's HTTPS base URL. Download the signing key over
 HTTPS, trusting the server's TLS certificate for the initial key installation.
 Pacman then requires signatures on repository metadata and packages.
 
-Run as root, replacing `REPOSITORY_BASE_URL` with that HTTPS URL:
+On an installed Arch system, replace `REPOSITORY_BASE_URL` with the operator's
+HTTPS URL and `SIGNING_KEY_FINGERPRINT` with its full signing-key fingerprint.
+Run these four commands once to import and trust the key, add the repository,
+and install Epithet:
 
 ```sh
-set -eu
-repository=REPOSITORY_BASE_URL
-key=$(mktemp)
-curl -fsS --proto '=https' "$repository/keys/epithet-arch.asc" -o "$key"
-fingerprint=$(gpg --batch --show-keys --with-colons "$key" |
-  awk -F: '$1 == "fpr" {print $10; exit}')
-[ -n "$fingerprint" ]
-pacman-key --init
-pacman-key --add "$key"
-pacman-key --lsign-key "$fingerprint"
-rm -f "$key"
+curl -fsS --proto '=https' REPOSITORY_BASE_URL/keys/epithet-arch.asc | sudo pacman-key --add -
+sudo pacman-key --lsign-key SIGNING_KEY_FINGERPRINT
+printf '\n[epithet]\nSigLevel = Required\nServer = REPOSITORY_BASE_URL/arch/$arch\n' | sudo tee -a /etc/pacman.conf
+sudo pacman -Syu epithet
 ```
 
-Add the following to `/etc/pacman.conf`, replacing `REPOSITORY_BASE_URL` with the
-same HTTPS URL. Keep pacman's literal `$arch` variable:
-
-```ini
-[epithet]
-SigLevel = Required
-Server = REPOSITORY_BASE_URL/arch/$arch
-```
-
-Then run `pacman -Syu epithet`. Only x86_64 is supported initially. The package
-installs the binary and license and depends on OpenSSH and CA certificates. It
-does not configure sshd, enroll the host, or start services.
+Keep the literal `$arch` in the repository URL. Only x86_64 is supported
+initially. The package installs the binary and license and depends on OpenSSH
+and CA certificates. It does not configure sshd, enroll the host, or start
+services. Subsequent system updates include Epithet automatically.
 
 ## cloud-init
 
