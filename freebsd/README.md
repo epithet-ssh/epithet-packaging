@@ -78,4 +78,6 @@ After pausing the schedule, `freebsd/ops/epithet-pkg-publish rollback X.Y.Z`
 selects a retained repository. Its `status` command reports the current native
 version. Rollback changes repository metadata; clients do not automatically
 downgrade. Existing retained `_N` revisions can still be selected by rollback,
-but the new build flow does not create package-only revisions.
+and `epithet-release freebsd-revision vX.Y.Z FULL_SOURCE_COMMIT N` publishes a
+new package-only revision through the same build and validation path. See the
+[operations guide](../ops/README.md#logs-and-retries).

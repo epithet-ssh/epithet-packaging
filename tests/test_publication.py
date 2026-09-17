@@ -214,6 +214,59 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 publish.pending(self.config, 'v1.2.3', 'c' * 40)
 
+    def test_freebsd_revision_preserves_source_and_does_not_downgrade(self):
+        root = self.root / 'public/FreeBSD:15:amd64'
+        previous = root / 'releases/1.2.3'
+        previous.mkdir(parents=True)
+        metadata.write_json(previous / 'release.json', identity())
+        (root / 'latest').symlink_to('releases/1.2.3')
+        revision = dict(identity(), freebsd_revision=1, recipe_digest='c' * 64)
+        self.assertTrue(publish.needed(self.config, 'freebsd', revision))
+        with self.assertRaises(ValueError):
+            publish.needed(self.config, 'freebsd', dict(revision, source_commit='d' * 40))
+        revised = root / 'releases/1.2.3_1'
+        revised.mkdir()
+        metadata.write_json(revised / 'release.json', revision)
+        publish.switch(root / 'latest', 'releases/1.2.3_1')
+        self.assertFalse(publish.needed(self.config, 'freebsd', revision))
+        self.assertFalse(publish.needed(self.config, 'freebsd', identity()))
+        with self.assertRaises(ValueError):
+            publish.needed(self.config, 'freebsd', dict(revision, recipe_digest='e' * 64))
+        self.assertTrue(publish.needed(self.config, 'freebsd', dict(identity(), tag='v1.2.4')))
+        real_current = publish.current
+        with patch.object(publish, 'current', side_effect=lambda config, target:
+                          real_current(config, target) if target == 'freebsd' else ('v1.2.3', identity())):
+            self.assertFalse(publish.pending(self.config, 'v1.2.3', 'a' * 40))
+        self.assertEqual(metadata.read_release(previous), identity())
+
+    def test_revision_command_runs_only_freebsd(self):
+        root = self.root / 'pipeline'
+        for directory in ('bin', 'scripts', 'tools'):
+            (root / directory).mkdir(parents=True)
+        for name in ('bin/epithet-release', 'scripts/common.sh', 'tools/lock.py', 'tools/metadata.py'):
+            shutil.copy(ROOT / name, root / name)
+        source = root / 'scripts/source.sh'
+        source.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$WORK_ROOT/source.calls"\n')
+        source.chmod(0o755)
+        native = root / 'scripts/freebsd.sh'
+        native.write_text('#!/bin/sh\nprintf "%s" "$1" > "$WORK_ROOT/native.called"\n')
+        native.chmod(0o755)
+        work = self.root / 'work'
+        work.mkdir(exist_ok=True)
+        (work / 'original').write_text('preserved')
+        env = dict(os.environ, WORK_ROOT=str(work), PYTHON=sys.executable,
+                   EPITHET_PACKAGING_CONFIG=str(self.root / 'absent'))
+        env.pop('PACKAGING_ROOT', None)
+        command = ['sh', str(root / 'bin/epithet-release'), 'freebsd-revision', 'v1.2.3', 'a' * 40]
+        result = subprocess.run(command + ['1'], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((work / 'native.called').read_text(), str(work / 'freebsd-revisions/v1.2.3_1'))
+        self.assertIn('prepare v1.2.3 ' + 'a' * 40 + ' 1', (work / 'source.calls').read_text())
+        self.assertEqual((work / 'original').read_text(), 'preserved')
+        for invalid in ('0', '01', '-1', '../1', 'a'):
+            result = subprocess.run(command + [invalid], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 64, result.stderr)
+
     def git(self, directory, *args):
         return subprocess.check_output(['git', '-C', str(directory), *args], text=True, stderr=subprocess.DEVNULL).strip()
 
@@ -236,6 +289,17 @@ class PublicationTests(unittest.TestCase):
                 metadata.prepare('v1.2.3', '0' * 40)
             with patch.object(metadata, 'recipe_digest', return_value='c' * 64), self.assertRaises(ValueError):
                 metadata.prepare('v1.2.3', commit)
+            original = metadata.read_release(metadata.release_directory('v1.2.3'))
+            with patch.object(metadata, 'recipe_digest', return_value='c' * 64):
+                metadata.prepare('v1.2.3', commit, '1')
+                metadata.prepare('v1.2.3', commit, '1')
+            revised = metadata.read_release(metadata.release_directory('v1.2.3', 1))
+            self.assertEqual(revised['freebsd_revision'], 1)
+            self.assertEqual(revised['source_commit'], original['source_commit'])
+            self.assertEqual(revised['recipe_digest'], 'c' * 64)
+            self.assertEqual(metadata.read_release(metadata.release_directory('v1.2.3')), original)
+            with self.assertRaises(ValueError):
+                metadata.prepare('v1.2.3', commit, '1')
 
     def test_shell_targets_start_together_and_failure_does_not_block_others(self):
         # Real coordinator with fake target commands. Each job waits for all
@@ -310,6 +374,7 @@ touch "$WORK_ROOT/$name.finished"
         self.assertEqual(self.git(origin, 'rev-parse', 'refs/heads/main'), committed)
 
     def test_native_build_failure_uses_frozen_source_without_promotion(self):
+        metadata.write_json(self.release / 'release.json', dict(identity(), freebsd_revision=1))
         commands = self.root / 'commands'
         commands.mkdir()
         for name, body in {'id': 'echo 0', 'make': 'exit 0',
@@ -332,6 +397,7 @@ touch "$WORK_ROOT/$name.finished"
         cached = self.root / ('distfiles/epithet-1.2.3-' + 'a' * 40 + '.tar.gz')
         self.assertEqual(cached.read_bytes(), (self.release / 'source.tar.gz').read_bytes())
         self.assertIn('EPITHET_COMMIT= ' + 'a' * 40, (self.root / 'port/Makefile').read_text())
+        self.assertIn('PORTREVISION= 1', (self.root / 'port/Makefile').read_text())
         self.assertFalse((self.root / 'public/FreeBSD:15:amd64/latest').exists())
         self.assertEqual(list((self.root / 'public/FreeBSD:15:amd64/releases').iterdir()), [])
 

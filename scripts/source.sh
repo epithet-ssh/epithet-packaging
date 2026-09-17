@@ -14,9 +14,9 @@ fetch)
     git --git-dir="$SOURCE_CACHE" fetch origin 'refs/tags/*:refs/tags/*'
     ;;
 prepare)
-    [ "$#" -eq 3 ] || exit 64
-    "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" prepare "$2" "$3"
-    load_release "$WORK_ROOT/$2"
+    [ "$#" -ge 3 ] && [ "$#" -le 4 ] || exit 64
+    "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" prepare "$2" "$3" "${4:-0}"
+    load_release "$("$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" directory "$2" "${4:-0}")"
     if [ -f "$RELEASE_DIR/source.tar.gz" ]; then
         "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" verify-source "$RELEASE_DIR"
         exit 0
@@ -33,5 +33,5 @@ prepare)
     "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" archive "$work/source" "$work/source.tar.gz" "$SOURCE_EPOCH"
     "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" seal-source "$RELEASE_DIR" "$work/source.tar.gz"
     ;;
-*) echo 'usage: source.sh fetch | prepare TAG FULL_COMMIT' >&2; exit 64 ;;
+*) echo 'usage: source.sh fetch | prepare TAG FULL_COMMIT [FREEBSD_REVISION]' >&2; exit 64 ;;
 esac

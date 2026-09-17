@@ -44,6 +44,7 @@ build_package() {
     cp -R "$PORT_TEMPLATE"/. "$PORT_DIR"/
     sed \
         -e "s/^DISTVERSION=.*/DISTVERSION= ${VERSION}/" \
+        -e "s/^PORTREVISION=.*/PORTREVISION= ${FREEBSD_PORTREVISION}/" \
         -e "s/^EPITHET_COMMIT=.*/EPITHET_COMMIT= ${SOURCE_COMMIT}/" \
         -e "s/^EPITHET_BUILD_DATE=.*/EPITHET_BUILD_DATE= ${BUILD_DATE}/" \
         "$PORT_DIR/Makefile" > "$PORT_DIR/Makefile.new"
@@ -51,14 +52,17 @@ build_package() {
     make -C "$PORT_DIR" BATCH=yes DISTDIR="$DISTFILES_CACHE" clean makesum
     poudriere testport -b "$POUDRIERE_PACKAGE_BRANCH" -j "$POUDRIERE_JAIL" -p "$POUDRIERE_PORTS" -o "$PORT_ORIGIN"
     poudriere bulk -C -b "$POUDRIERE_PACKAGE_BRANCH" -j "$POUDRIERE_JAIL" -p "$POUDRIERE_PORTS" "$PORT_ORIGIN"
-    BUILT_PACKAGE=$POUDRIERE_PACKAGES/All/epithet-${VERSION}.pkg
-    [ -f "$BUILT_PACKAGE" ] || { echo "poudriere did not produce epithet $VERSION" >&2; exit 1; }
+    BUILT_PACKAGE=$POUDRIERE_PACKAGES/All/epithet-${pub_package_version}.pkg
+    [ -f "$BUILT_PACKAGE" ] || { echo "poudriere did not produce epithet $pub_package_version" >&2; exit 1; }
 }
 
 publish() {
     load_release "$1"
     "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" verify-source "$RELEASE_DIR"
     pub_package_version=$VERSION
+    if [ "$FREEBSD_PORTREVISION" -gt 0 ]; then
+        pub_package_version=${VERSION}_${FREEBSD_PORTREVISION}
+    fi
     pub_commit=$SOURCE_COMMIT
     if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" needed freebsd "$RELEASE_DIR"; then
         :

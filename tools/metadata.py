@@ -24,6 +24,20 @@ def version(tag):
     return tuple(map(int, tag[1:].split(".")))
 
 
+def port_revision(value):
+    if not re.fullmatch(r"0|[1-9][0-9]*", str(value)):
+        raise ValueError("FreeBSD revision must be a nonnegative integer")
+    return int(value)
+
+
+def release_directory(tag, revision=0):
+    """Keep package-only revisions separate from the frozen source release."""
+    version(tag)
+    revision = port_revision(revision)
+    root = Path(os.environ["WORK_ROOT"])
+    return root / "freebsd-revisions" / f"{tag}_{revision}" if revision else root / tag
+
+
 def sha256(path):
     with open(path, "rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -43,6 +57,10 @@ def read_release(directory):
             raise ValueError(f"invalid {key}")
     if type(data["source_epoch"]) is not int or data["source_epoch"] < 0:
         raise ValueError("invalid source epoch")
+    if "freebsd_revision" in data:
+        if type(data["freebsd_revision"]) is not int:
+            raise ValueError("invalid FreeBSD revision")
+        port_revision(data["freebsd_revision"])
     return data
 
 
@@ -60,7 +78,7 @@ def recipe_digest():
     return digest.hexdigest()
 
 
-def prepare(tag, commit):
+def prepare(tag, commit, revision=0):
     version(tag)
     if not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("release requires a full source commit")
@@ -70,7 +88,10 @@ def prepare(tag, commit):
         raise ValueError("tag does not resolve to the requested source commit")
     epoch = int(subprocess.check_output(git + ["show", "-s", "--format=%ct", commit], text=True))
     data = {"tag": tag, "source_commit": commit, "source_epoch": epoch, "recipe_digest": recipe_digest()}
-    directory = Path(os.environ["WORK_ROOT"]) / tag
+    revision = port_revision(revision)
+    if revision:
+        data["freebsd_revision"] = revision
+    directory = release_directory(tag, revision)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "release.json"
     if path.exists():
@@ -180,11 +201,14 @@ def main():
             except ValueError:
                 continue
         print(max(tags, key=version) if tags else "")
+    elif command == "directory":
+        print(release_directory(*args))
     elif command == "prepare":
         prepare(*args)
     elif command == "environment":
         data = read_release(args[0])
         values = {"TAG": data["tag"], "VERSION": data["tag"][1:], "SOURCE_COMMIT": data["source_commit"],
+                  "FREEBSD_PORTREVISION": data.get("freebsd_revision", 0),
                   "SOURCE_EPOCH": data["source_epoch"], "BUILD_DATE": datetime.datetime.fromtimestamp(
                       data["source_epoch"], datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         print("\n".join(f"{key}={shlex.quote(str(value))}" for key, value in values.items()))

@@ -18,7 +18,7 @@ load_release() {
     # The helper validates fields and quotes shell values before emitting them.
     release_environment=$("$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" environment "$RELEASE_DIR")
     eval "$release_environment"
-    export TAG VERSION SOURCE_COMMIT SOURCE_EPOCH BUILD_DATE
+    export TAG VERSION SOURCE_COMMIT SOURCE_EPOCH BUILD_DATE FREEBSD_PORTREVISION
 }
 
 log() {

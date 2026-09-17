@@ -162,13 +162,28 @@ and a test receipt; a retry verifies completed artifacts before reusing them.
 Arch and macOS do not rebuild merely because publication failed.
 
 A changed recipe cannot silently rebuild the same frozen release. Use a new
-source version for a packaging correction. An entirely unpublished failed
+source version or a FreeBSD packaging revision for a packaging correction. An entirely unpublished failed
 workspace may be removed explicitly before retrying with revised recipes. Do
 not remove a workspace after any target has published it.
 
-Packages use Arch `pkgrel=1` and FreeBSD `PORTREVISION=0`. Package-only revision
-selection is not implemented. Additional architectures, AUR, Debian/Ubuntu, and
-RPM publication are also outside the current implementation.
+Source releases use Arch `pkgrel=1` and FreeBSD `PORTREVISION=0`. To publish a
+FreeBSD packaging correction against the same source tag and commit, install
+the reviewed recipe update while release jobs are stopped, then run:
+
+```sh
+/usr/local/libexec/epithet-packaging/bin/epithet-release freebsd-revision vX.Y.Z FULL_SOURCE_COMMIT 1
+```
+
+The positive revision becomes `PORTREVISION` and the package suffix (`X.Y.Z_1`).
+It uses a separate frozen workspace at `$WORK_ROOT/freebsd-revisions/vX.Y.Z_1`,
+runs the existing native build/signing/install/upgrade checks, and only publishes
+FreeBSD. The original package remains retained; repeat the same command to retry.
+A changed recipe for an already frozen revision requires a higher revision.
+Polling recognizes the revised package and does not replace it with revision zero.
+A newer source release starts at revision zero again.
+
+Arch package-only revisions, additional architectures, AUR, Debian/Ubuntu, and
+RPM publication remain outside the current implementation.
 
 ## Retention and rollback
 

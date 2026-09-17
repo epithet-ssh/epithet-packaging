@@ -6,12 +6,16 @@ set -eu
 : "${WORK_ROOT:?Set WORK_ROOT in the packaging config}"
 
 usage() {
-    echo 'usage: epithet-release release vX.Y.Z FULL_COMMIT | poll | status' >&2
+    echo 'usage: epithet-release release vX.Y.Z FULL_COMMIT | freebsd-revision vX.Y.Z FULL_COMMIT N | poll | status' >&2
     exit 64
 }
 [ "$#" -gt 0 ] || usage
 case "$1" in
     release) [ "$#" -eq 3 ] || usage ;;
+    freebsd-revision)
+        [ "$#" -eq 4 ] || usage
+        case "$4" in ''|0*|*[!0-9]*) usage ;; esac
+        ;;
     poll|status) [ "$#" -eq 1 ] || usage ;;
     *) usage ;;
 esac
@@ -31,6 +35,20 @@ if [ "$1" = poll ]; then
 else
     tag=$2
     commit=$3
+fi
+if [ "$1" = freebsd-revision ]; then
+    "$PACKAGING_ROOT/scripts/source.sh" prepare "$tag" "$commit" "$4"
+    release_dir=$("$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" directory "$tag" "$4")
+    mkdir -p "$release_dir/logs"
+    log "FreeBSD $tag revision $4; log in $release_dir/logs/freebsd.log"
+    if "$PACKAGING_ROOT/scripts/freebsd.sh" "$release_dir" > "$release_dir/logs/freebsd.log" 2>&1; then
+        log "FreeBSD $tag revision $4 succeeded"
+        exit 0
+    else
+        code=$?
+        tail -n 12 "$release_dir/logs/freebsd.log" >&2
+        exit "$code"
+    fi
 fi
 if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" pending "$tag" "$commit"; then
     :

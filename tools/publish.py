@@ -166,10 +166,22 @@ def current(config, target):
     return tag, json.loads(identity.read_text()) if identity.exists() else None
 
 
+def freebsd_revision(config):
+    latest = Path(config["public_root"]) / config["freebsd_abi"] / "latest"
+    return int(latest.resolve().name.partition("_")[2] or "0") if latest.is_symlink() else 0
+
+
 def needed(config, target, release):
     tag, identity = current(config, target)
     if tag is None or version(tag) < version(release["tag"]):
         return True
+    if target == "freebsd" and tag == release["tag"]:
+        if identity is None or identity.get("source_commit") != release["source_commit"]:
+            raise ValueError("freebsd already has this version with different or unknown source inputs")
+        old_revision = freebsd_revision(config)
+        new_revision = release.get("freebsd_revision", 0)
+        if old_revision != new_revision:
+            return old_revision < new_revision
     if tag == release["tag"] and (identity is None or any(identity.get(key) != value for key, value in release.items())):
         raise ValueError(f"{target} already has this version with different or unknown inputs")
     return False
@@ -255,7 +267,11 @@ def main():
             raise SystemExit(3)
         return
     if args.command == "status":
-        print(json.dumps({target: current(config, target)[0] for target in ("freebsd", "arch", "macos")}))
+        state = {target: current(config, target)[0] for target in ("freebsd", "arch", "macos")}
+        revision = freebsd_revision(config)
+        if state["freebsd"] and revision:
+            state["freebsd"] += f"_{revision}"
+        print(json.dumps(state))
         return
     if args.command == "needed":
         target, directory = args.arguments
