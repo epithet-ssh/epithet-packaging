@@ -3,7 +3,7 @@ yatl_version: 1
 title: Publish signed Arch packages and automate Arch and FreeBSD releases
 id: 8wd5pe8z
 created: 2026-09-14T02:42:04.381801Z
-updated: 2026-09-17T18:18:08.927658Z
+updated: 2026-09-17T18:18:48.934066Z
 author: Brian McCallister
 priority: high
 tags:
@@ -16,7 +16,7 @@ tags:
 # Package publication and deployment
 
 Published to epithet-ssh/epithet-packaging after user review and push approval.
-Deployment is now authorized and underway. The release coordinator now
+Production deployment is complete. The release coordinator now
 runs in a FreeBSD builder jail, consuming an exact source tag/commit and vendoring
 once. FreeBSD builds/tests in Poudriere, Arch builds/tests in a disposable
 container on a persistent bhyve/vm-bhyve Linux VM, and macOS cross-compiles both
@@ -91,7 +91,8 @@ Manual Arch instructions now use four transparent shell commands without a
 remote installer script or a keyserver dependency. macOS native installation
 and service tests remain deliberately manual in v1.
 
----
-# Log: 2026-09-17T18:18:08Z Brian McCallister
 
-Closed: Published v0.34.1 on the jailed self-hosted pipeline; verified native package tests, public HTTPS installs, real Arch cloud-init boot, manual installation commands, retained releases, and Homebrew hashes. Enabled one-minute discovery and rotated logs.
+---
+# Log: 2026-09-17T18:18:48Z Brian McCallister
+
+Closed: Published v0.34.1; native package tests, HTTPS installs, real Arch cloud-init and manual installation passed. Automatic discovery and rotated logs are enabled.
