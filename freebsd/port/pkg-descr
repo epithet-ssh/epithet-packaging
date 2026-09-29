@@ -2,6 +2,7 @@ Epithet provides short-lived SSH certificates, per-connection SSH agents,
 and local host enrollment. The host enrollment command configures sshd to
 authorize destination-bound principals without a persistent Epithet process.
 
-The package also installs disabled-by-default rc.d services for combined or
-split CA and policy-server operation. All service modes use one preserved
-configuration file and run under a dedicated unprivileged account.
+The package also installs disabled-by-default rc.d services for the combined
+server or standalone CA, control, directory, and inventory services. Each
+service uses a preserved flat TOML configuration file and runs under a
+dedicated unprivileged account.

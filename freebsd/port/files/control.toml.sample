@@ -1,0 +1,12 @@
+# Standalone control. Use the same OIDC settings as ca.toml.
+# Expose /manage and, for SCIM, /scim/v2 through your TLS reverse proxy.
+listen = "127.0.0.1:9996"
+control-key-file = "/usr/local/etc/epithet/control.key"
+oidc-issuer = ""
+oidc-client-id = "replace-with-your-client-id"
+directory = "http://127.0.0.1:9997"
+directory-backend = "http://127.0.0.1:9997"
+inventory-backend = "http://127.0.0.1:9998"
+# scim-token-file = "/usr/local/etc/epithet/scim.token"
+# directory-admin-group = ["administrators"]
+# inventory-admin-group = ["administrators"]

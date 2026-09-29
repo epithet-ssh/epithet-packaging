@@ -42,6 +42,40 @@ The package includes the server's rc.d scripts, disabled by default. To run an
 Epithet server, configure and enable the appropriate service after installation;
 the package itself is the same for client and server use.
 
+## Service configuration
+
+Configuration uses flat TOML: keys match CLI flag names and repeatable values
+use arrays. Static directory and host inventory data still use YAML.
+
+| rc.d service | Configuration under `/usr/local/etc/epithet/` |
+| --- | --- |
+| `epithet_server` | `server.toml` |
+| `epithet_ca` | `ca.toml` |
+| `epithet_control` | `control.toml` |
+| `epithet_directory` | `directory.toml` |
+| `epithet_inventory` | `inventory.toml` |
+
+Use the combined server or the four standalone services. Each standalone
+service has its own file so shared flags such as `listen` can have different
+values. Package upgrades preserve operator-edited files; `.sample` files show
+the packaged defaults. The `epithet_SERVICE_config` rc.conf variable can select
+another file for that service.
+
+Before enabling services, configure OIDC, install the policy and static data
+files, and generate distinct CA and control keys. Private keys must be readable
+by `epithet` (for example, `root:epithet` with mode `0640`). Standalone directory
+and inventory also need the corresponding public key files. CA and control
+must use the same OIDC settings. Expose CA and control through TLS termination
+and set `control-public` in `ca.toml` to the public management URL ending in
+`/manage`. The directory and inventory samples listen on loopback TCP addresses.
+
+The server startup hook prepares `/var/db/epithet/directory` and
+`/var/db/epithet/inventory` with service-account ownership and mode `0700`.
+Standalone directory and inventory hooks each prepare their own subdirectory.
+Existing parent ownership and unrelated host-enrollment files are preserved.
+For a custom `state-dir`, prepare the relevant subdirectories with those
+permissions before starting the service.
+
 ## Build and publication
 
 The coordinator prepares a vendored source archive at an exact source commit.

@@ -1,2 +1,6 @@
 bin/epithet
-@sample(root,epithet,0640) %%ETCDIR%%/server.yaml.sample
+@sample(root,epithet,0640) %%ETCDIR%%/server.toml.sample
+@sample(root,epithet,0640) %%ETCDIR%%/ca.toml.sample
+@sample(root,epithet,0640) %%ETCDIR%%/control.toml.sample
+@sample(root,epithet,0640) %%ETCDIR%%/directory.toml.sample
+@sample(root,epithet,0640) %%ETCDIR%%/inventory.toml.sample

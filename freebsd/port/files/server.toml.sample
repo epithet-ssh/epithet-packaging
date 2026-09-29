@@ -1,0 +1,22 @@
+# Combined server. Configure OIDC, install keys and data files before enabling.
+# Configuration keys are CLI flag names; repeatable flags use arrays.
+listen = "0.0.0.0:8080"
+ca-key-file = "/usr/local/etc/epithet/ca.key"
+control-key-file = "/usr/local/etc/epithet/control.key"
+policy-file = "/usr/local/etc/epithet/policy.writ"
+oidc-issuer = ""
+oidc-client-id = "replace-with-your-client-id"
+certificate-default-ttl = "5m"
+
+directory-mode = "static"
+directory-static-file = ["/usr/local/etc/epithet/inventory.yaml"]
+inventory-mode = "enrollment"
+inventory-static-file = ["/usr/local/etc/epithet/inventory.yaml"]
+principal-mode = "epithet-principal-v1"
+state-dir = "/var/db/epithet"
+
+# For SCIM, use directory-mode = "scim" and remove directory-static-file.
+# scim-token-file = "/usr/local/etc/epithet/scim.token"
+# Grant administration to your directory groups as needed:
+# directory-admin-group = ["administrators"]
+# inventory-admin-group = ["administrators"]

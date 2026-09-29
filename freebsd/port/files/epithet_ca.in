@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # PROVIDE: epithet_ca
-# REQUIRE: NETWORKING epithet_policy epithet_inventory
+# REQUIRE: NETWORKING epithet_directory epithet_inventory
 # KEYWORD: shutdown
 #
 # Add this line to /etc/rc.conf to enable the CA service:
@@ -17,7 +17,7 @@ rcvar=epithet_ca_enable
 load_rc_config $name
 
 : ${epithet_ca_enable:=NO}
-: ${epithet_ca_config:=%%PREFIX%%/etc/epithet/server.yaml}
+: ${epithet_ca_config:=%%PREFIX%%/etc/epithet/ca.toml}
 : ${epithet_ca_runas:=epithet}
 : ${epithet_ca_runas_group:=epithet}
 : ${epithet_ca_pidfile:=/var/run/epithet/ca.pid}

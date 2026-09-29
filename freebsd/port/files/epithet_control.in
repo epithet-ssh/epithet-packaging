@@ -1,0 +1,49 @@
+#!/bin/sh
+
+# PROVIDE: epithet_control
+# REQUIRE: NETWORKING epithet_directory epithet_inventory
+# KEYWORD: shutdown
+#
+# Add this line to /etc/rc.conf to enable the control service:
+#
+# epithet_control_enable="YES"
+
+. /etc/rc.subr
+
+name=epithet_control
+desc="Epithet control server"
+rcvar=epithet_control_enable
+
+load_rc_config $name
+
+: ${epithet_control_enable:=NO}
+: ${epithet_control_config:=%%PREFIX%%/etc/epithet/control.toml}
+: ${epithet_control_runas:=epithet}
+: ${epithet_control_runas_group:=epithet}
+: ${epithet_control_pidfile:=/var/run/epithet/control.pid}
+: ${epithet_control_logfile:=/var/log/epithet/control.log}
+: ${epithet_control_args:=""}
+
+command=/usr/sbin/daemon
+procname=%%PREFIX%%/bin/epithet
+pidfile=${epithet_control_pidfile}
+command_args="-f -p ${pidfile} -o ${epithet_control_logfile} -u ${epithet_control_runas} ${procname} --config ${epithet_control_config} control ${epithet_control_args}"
+required_files=${epithet_control_config}
+start_precmd=epithet_control_precmd
+
+epithet_control_precmd()
+{
+	load_rc_config epithet_server
+	: ${epithet_server_enable:=NO}
+	if checkyesno epithet_server_enable; then
+		echo "epithet_control cannot run while epithet_server is enabled" >&2
+		return 1
+	fi
+
+	install -d -m 0750 -o "${epithet_control_runas}" -g "${epithet_control_runas_group}" /var/run/epithet /var/log/epithet
+	if [ ! -e "${epithet_control_logfile}" ]; then
+		install -m 0640 -o "${epithet_control_runas}" -g "${epithet_control_runas_group}" /dev/null "${epithet_control_logfile}"
+	fi
+}
+
+run_rc_command "$1"

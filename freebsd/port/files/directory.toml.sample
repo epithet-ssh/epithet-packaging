@@ -1,0 +1,9 @@
+# Standalone directory. Private fact reads and administration use signed requests.
+listen = "127.0.0.1:9997"
+ca-public-key = "/usr/local/etc/epithet/ca.key.pub"
+control-public-key = "/usr/local/etc/epithet/control.key.pub"
+state-dir = "/var/db/epithet"
+directory-mode = "static"
+directory-static-file = ["/usr/local/etc/epithet/inventory.yaml"]
+# For SCIM, use directory-mode = "scim" and remove directory-static-file.
+# Configure the SCIM bearer token in control.toml.

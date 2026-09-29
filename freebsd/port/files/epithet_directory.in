@@ -1,0 +1,56 @@
+#!/bin/sh
+
+# PROVIDE: epithet_directory
+# REQUIRE: NETWORKING
+# BEFORE: epithet_ca epithet_control
+# KEYWORD: shutdown
+#
+# Add this line to /etc/rc.conf to enable the directory service:
+#
+# epithet_directory_enable="YES"
+
+. /etc/rc.subr
+
+name=epithet_directory
+desc="Epithet directory server"
+rcvar=epithet_directory_enable
+
+load_rc_config $name
+
+: ${epithet_directory_enable:=NO}
+: ${epithet_directory_config:=%%PREFIX%%/etc/epithet/directory.toml}
+: ${epithet_directory_runas:=epithet}
+: ${epithet_directory_runas_group:=epithet}
+: ${epithet_directory_pidfile:=/var/run/epithet/directory.pid}
+: ${epithet_directory_logfile:=/var/log/epithet/directory.log}
+: ${epithet_directory_args:=""}
+
+command=/usr/sbin/daemon
+procname=%%PREFIX%%/bin/epithet
+pidfile=${epithet_directory_pidfile}
+command_args="-f -p ${pidfile} -o ${epithet_directory_logfile} -u ${epithet_directory_runas} ${procname} --config ${epithet_directory_config} directory ${epithet_directory_args}"
+required_files=${epithet_directory_config}
+start_precmd=epithet_directory_precmd
+
+epithet_directory_precmd()
+{
+	load_rc_config epithet_server
+	: ${epithet_server_enable:=NO}
+	if checkyesno epithet_server_enable; then
+		echo "epithet_directory cannot run while epithet_server is enabled" >&2
+		return 1
+	fi
+
+	# Preserve the shared parent and unrelated host-enrollment state.
+	if [ ! -d /var/db/epithet ]; then
+		install -d -m 0755 -o root -g wheel /var/db/epithet || return 1
+	fi
+	install -d -m 0700 -o "${epithet_directory_runas}" -g "${epithet_directory_runas_group}" /var/db/epithet/directory || return 1
+
+	install -d -m 0750 -o "${epithet_directory_runas}" -g "${epithet_directory_runas_group}" /var/run/epithet /var/log/epithet
+	if [ ! -e "${epithet_directory_logfile}" ]; then
+		install -m 0640 -o "${epithet_directory_runas}" -g "${epithet_directory_runas_group}" /dev/null "${epithet_directory_logfile}"
+	fi
+}
+
+run_rc_command "$1"

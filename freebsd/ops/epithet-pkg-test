@@ -67,15 +67,13 @@ assert_service_files() {
 		echo "package did not create the epithet service account" >&2
 		exit 1
 	}
-	[ -f "$root/usr/local/etc/epithet/server.yaml.sample" ] || {
-		echo "package did not install the shared configuration sample" >&2
-		exit 1
-	}
-	[ -f "$root/usr/local/etc/epithet/server.yaml" ] || {
-		echo "package did not install the shared default configuration" >&2
-		exit 1
-	}
-	for service in epithet_server epithet_ca epithet_policy epithet_inventory; do
+	[ ! -e "$root/usr/local/etc/rc.d/epithet_policy" ]
+	for service in epithet_server epithet_ca epithet_control epithet_directory epithet_inventory; do
+		config="$root/usr/local/etc/epithet/${service#epithet_}.toml"
+		[ -f "$config.sample" ] && [ -f "$config" ] || {
+			echo "package did not install configuration for $service" >&2
+			exit 1
+		}
 		script="$root/usr/local/etc/rc.d/$service"
 		[ -x "$script" ] || {
 			echo "package did not install executable rc.d service $service" >&2
@@ -85,8 +83,8 @@ assert_service_files() {
 			echo "$service is not disabled by default" >&2
 			exit 1
 		}
-		grep -Fq ": \${${service}_config:=/usr/local/etc/epithet/server.yaml}" "$script" || {
-			echo "$service does not use the shared default configuration" >&2
+		grep -Fq ": \${${service}_config:=/usr/local/etc/epithet/${service#epithet_}.toml}" "$script" || {
+			echo "$service does not use its own TOML configuration" >&2
 			exit 1
 		}
 		grep -Fq ": \${${service}_runas:=epithet}" "$script" || {
@@ -106,10 +104,14 @@ pkg_cmd install -y -r Epithet epithet
 assert_version
 assert_service_files
 $root/usr/local/bin/epithet host enroll --help >/dev/null
-$root/usr/local/bin/epithet inventory --help >/dev/null
+for service in server ca control directory inventory; do
+	$root/usr/local/bin/epithet "$service" --help >/dev/null
+done
 pkg_cmd delete -y epithet
 [ ! -e "$root/usr/local/bin/epithet" ]
-[ ! -e "$root/usr/local/etc/epithet/server.yaml" ]
+for service in server ca control directory inventory; do
+	[ ! -e "$root/usr/local/etc/epithet/$service.toml" ]
+done
 
 if [ -n "$previous_package" ]; then
 	previous_package=$(realpath "$previous_package")
@@ -121,20 +123,20 @@ if [ -n "$previous_package" ]; then
 	printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG9ubHktYS1wYWNrYWdlLXRlc3Q epithet-test' > "$root/var/db/epithet/epithet-ca.pub"
 	printf '%s\n' '# managed enrollment fixture' > "$root/etc/ssh/sshd_config.d/60-epithet.conf"
 	mkdir -p "$root/usr/local/etc/epithet"
-	printf '%s\n' '# operator-managed service configuration' > "$root/usr/local/etc/epithet/server.yaml"
+	printf '%s\n' '# operator-managed service configuration' > "$root/usr/local/etc/epithet/server.toml"
 
-	before=$(find "$root/var/db/epithet" "$root/etc/ssh/sshd_config.d/60-epithet.conf" "$root/usr/local/etc/epithet/server.yaml" -type f -exec sha256 -q {} \; | sha256 -q)
+	before=$(find "$root/var/db/epithet" "$root/etc/ssh/sshd_config.d/60-epithet.conf" "$root/usr/local/etc/epithet/server.toml" -type f -exec sha256 -q {} \; | sha256 -q)
 	pkg_cmd upgrade -y -r Epithet epithet
 	assert_version
 	assert_service_files
-	after=$(find "$root/var/db/epithet" "$root/etc/ssh/sshd_config.d/60-epithet.conf" "$root/usr/local/etc/epithet/server.yaml" -type f -exec sha256 -q {} \; | sha256 -q)
+	after=$(find "$root/var/db/epithet" "$root/etc/ssh/sshd_config.d/60-epithet.conf" "$root/usr/local/etc/epithet/server.toml" -type f -exec sha256 -q {} \; | sha256 -q)
 	[ "$before" = "$after" ] || {
 		echo "package upgrade changed enrolled host state or service configuration" >&2
 		exit 1
 	}
 
 	pkg_cmd delete -y epithet
-	after_delete=$(find "$root/var/db/epithet" "$root/etc/ssh/sshd_config.d/60-epithet.conf" "$root/usr/local/etc/epithet/server.yaml" -type f -exec sha256 -q {} \; | sha256 -q)
+	after_delete=$(find "$root/var/db/epithet" "$root/etc/ssh/sshd_config.d/60-epithet.conf" "$root/usr/local/etc/epithet/server.toml" -type f -exec sha256 -q {} \; | sha256 -q)
 	[ "$before" = "$after_delete" ] || {
 		echo "package deletion changed enrolled host state or service configuration" >&2
 		exit 1

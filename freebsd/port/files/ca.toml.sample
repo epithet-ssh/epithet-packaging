@@ -1,0 +1,11 @@
+# Standalone CA. Use the same OIDC settings as control.toml.
+listen = "0.0.0.0:8080"
+ca-key-file = "/usr/local/etc/epithet/ca.key"
+policy-file = "/usr/local/etc/epithet/policy.writ"
+certificate-default-ttl = "5m"
+oidc-issuer = ""
+oidc-client-id = "replace-with-your-client-id"
+directory = "http://127.0.0.1:9997"
+inventory = "http://127.0.0.1:9998"
+# Set control-public to the client-accessible HTTPS URL ending in /manage.
+# Route that URL to the standalone control service through your reverse proxy.

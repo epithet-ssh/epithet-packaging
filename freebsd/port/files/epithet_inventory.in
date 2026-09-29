@@ -2,7 +2,7 @@
 
 # PROVIDE: epithet_inventory
 # REQUIRE: NETWORKING
-# BEFORE: epithet_ca
+# BEFORE: epithet_ca epithet_control
 # KEYWORD: shutdown
 #
 # Add this line to /etc/rc.conf to enable the inventory service:
@@ -18,7 +18,7 @@ rcvar=epithet_inventory_enable
 load_rc_config $name
 
 : ${epithet_inventory_enable:=NO}
-: ${epithet_inventory_config:=%%PREFIX%%/etc/epithet/server.yaml}
+: ${epithet_inventory_config:=%%PREFIX%%/etc/epithet/inventory.toml}
 : ${epithet_inventory_runas:=epithet}
 : ${epithet_inventory_runas_group:=epithet}
 : ${epithet_inventory_pidfile:=/var/run/epithet/inventory.pid}
@@ -40,6 +40,12 @@ epithet_inventory_precmd()
 		echo "epithet_inventory cannot run while epithet_server is enabled" >&2
 		return 1
 	fi
+
+	# Preserve the shared parent and unrelated host-enrollment state.
+	if [ ! -d /var/db/epithet ]; then
+		install -d -m 0755 -o root -g wheel /var/db/epithet || return 1
+	fi
+	install -d -m 0700 -o "${epithet_inventory_runas}" -g "${epithet_inventory_runas_group}" /var/db/epithet/inventory || return 1
 
 	install -d -m 0750 -o "${epithet_inventory_runas}" -g "${epithet_inventory_runas_group}" /var/run/epithet /var/log/epithet
 	if [ ! -e "${epithet_inventory_logfile}" ]; then

@@ -11,13 +11,13 @@
 . /etc/rc.subr
 
 name=epithet_server
-desc="Epithet combined CA, policy, and inventory server"
+desc="Epithet combined CA, control, directory, and inventory server"
 rcvar=epithet_server_enable
 
 load_rc_config $name
 
 : ${epithet_server_enable:=NO}
-: ${epithet_server_config:=%%PREFIX%%/etc/epithet/server.yaml}
+: ${epithet_server_config:=%%PREFIX%%/etc/epithet/server.toml}
 : ${epithet_server_runas:=epithet}
 : ${epithet_server_runas_group:=epithet}
 : ${epithet_server_pidfile:=/var/run/epithet/server.pid}
@@ -34,15 +34,23 @@ start_precmd=epithet_server_precmd
 epithet_server_precmd()
 {
 	load_rc_config epithet_ca
-	load_rc_config epithet_policy
+	load_rc_config epithet_control
+	load_rc_config epithet_directory
 	load_rc_config epithet_inventory
 	: ${epithet_ca_enable:=NO}
-	: ${epithet_policy_enable:=NO}
+	: ${epithet_control_enable:=NO}
+	: ${epithet_directory_enable:=NO}
 	: ${epithet_inventory_enable:=NO}
-	if checkyesno epithet_ca_enable || checkyesno epithet_policy_enable || checkyesno epithet_inventory_enable; then
-		echo "epithet_server cannot run while epithet_ca, epithet_policy, or epithet_inventory is enabled" >&2
+	if checkyesno epithet_ca_enable || checkyesno epithet_control_enable || checkyesno epithet_directory_enable || checkyesno epithet_inventory_enable; then
+		echo "epithet_server cannot run while epithet_ca, epithet_control, epithet_directory, or epithet_inventory is enabled" >&2
 		return 1
 	fi
+
+	# Preserve the shared parent and unrelated host-enrollment state.
+	if [ ! -d /var/db/epithet ]; then
+		install -d -m 0755 -o root -g wheel /var/db/epithet || return 1
+	fi
+	install -d -m 0700 -o "${epithet_server_runas}" -g "${epithet_server_runas_group}" /var/db/epithet/directory /var/db/epithet/inventory || return 1
 
 	install -d -m 0750 -o "${epithet_server_runas}" -g "${epithet_server_runas_group}" /var/run/epithet /var/log/epithet
 	if [ ! -e "${epithet_server_logfile}" ]; then

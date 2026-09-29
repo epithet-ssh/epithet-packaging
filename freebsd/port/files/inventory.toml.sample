@@ -1,0 +1,9 @@
+# Standalone inventory. Private fact reads and administration use signed requests.
+listen = "127.0.0.1:9998"
+ca-public-key = "/usr/local/etc/epithet/ca.key.pub"
+control-public-key = "/usr/local/etc/epithet/control.key.pub"
+state-dir = "/var/db/epithet"
+inventory-mode = "enrollment"
+# Static hosts are optional in enrollment mode; remove this line if unused.
+inventory-static-file = ["/usr/local/etc/epithet/inventory.yaml"]
+principal-mode = "epithet-principal-v1"

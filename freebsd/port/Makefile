@@ -11,7 +11,7 @@ LICENSE=	APACHE20
 LICENSE_FILE=	${WRKSRC}/LICENSE-2.0.txt
 
 USES=		go:1.25+,modules
-USE_RC_SUBR=	epithet_server epithet_ca epithet_policy epithet_inventory
+USE_RC_SUBR=	epithet_server epithet_ca epithet_control epithet_directory epithet_inventory
 # The publisher fills in an immutable source commit before makesum.
 EPITHET_COMMIT=	UNSET
 EPITHET_BUILD_DATE= UNSET
@@ -33,7 +33,9 @@ post-build:
 
 post-install:
 	${MKDIR} ${STAGEDIR}${ETCDIR}
-	${INSTALL_DATA} ${FILESDIR}/server.yaml.sample \
-		${STAGEDIR}${ETCDIR}/server.yaml.sample
+.for service in server ca control directory inventory
+	${INSTALL_DATA} ${FILESDIR}/${service}.toml.sample \
+		${STAGEDIR}${ETCDIR}/${service}.toml.sample
+.endfor
 
 .include <bsd.port.mk>
