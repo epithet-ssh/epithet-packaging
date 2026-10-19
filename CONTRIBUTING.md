@@ -6,14 +6,14 @@ and the [operations guide](ops/README.md) for installing reviewed changes.
 
 ## Code layout
 
-- `bin/epithet-release` coordinates the three platform jobs.
-- `scripts/` prepares source and runs builds, the Arch worker, and tap updates.
+- `bin/epithet-release` coordinates the four platform jobs.
+- `scripts/` prepares source and runs builds, Linux workers, and tap updates.
 - `tools/metadata.py` handles release identity, archives, and artifact receipts.
 - `tools/publish.py` handles signing, immutable files, and metadata promotion.
 - `freebsd/` contains the port, rc.d services, and Poudriere publication.
-- `arch/` contains the nFPM definition; `macos/` contains the formula template.
+- `arch/` and `debian/` contain nFPM definitions; `macos/` contains the formula template.
 - `ops/` contains configuration samples and service setup instructions.
-- `tests/` contains publisher regression tests and Arch package checks.
+- `tests/` contains publisher regression tests and native Arch/Debian package checks.
 
 ## Validation
 
@@ -22,9 +22,11 @@ artifact validation, publication failures, immutability, locking, and parallel
 execution. The optional GitHub `check` workflow runs the same suite and has no
 publication role.
 
-Native Arch and FreeBSD checks require their intended runtime. Run the Arch
+Native Arch, Debian, and FreeBSD checks require their intended runtime. Run the Arch
 checks through the disposable container: `tests/arch.sh` modifies its package
-database and keyring and must not run on a client. FreeBSD checks run through
+database and keyring and must not run on a client. Debian checks run through
+`scripts/debian-container.sh`; `tests/debian.sh` similarly modifies apt/dpkg
+state and must run only in its disposable container. FreeBSD checks run through
 Poudriere and the candidate repository tester. macOS installation and service
 testing are manual.
 

@@ -66,7 +66,7 @@ def read_release(directory):
 
 def recipe_digest():
     digest = hashlib.sha256()
-    for directory in ("bin", "scripts", "tools", "arch", "freebsd/port", "freebsd/ops", "macos", "tests"):
+    for directory in ("bin", "scripts", "tools", "arch", "debian", "freebsd/port", "freebsd/ops", "macos", "tests"):
         for path in sorted((ROOT / directory).rglob("*")):
             if "__pycache__" in path.parts or path.suffix == ".pyc" or path.suffix == ".md":
                 continue
@@ -134,6 +134,8 @@ def source_hash(directory):
 def asset_names(target, tag):
     if target == "arch":
         return [f"epithet-{tag[1:]}-1-x86_64.pkg.tar.zst", "epithet.db.tar.gz", "epithet.files.tar.gz"]
+    if target == "debian":
+        return [f"epithet_{tag[1:]}-1_amd64.deb", "Packages"]
     if target == "macos":
         return [f"epithet_{tag[1:]}_darwin_{arch}.tar.gz" for arch in ("amd64", "arm64")]
     raise ValueError("unknown artifact target")
@@ -142,7 +144,7 @@ def asset_names(target, tag):
 def receipt(directory, target):
     data = read_release(directory)
     data.update({"target": target, "source_sha256": source_hash(directory),
-                 "tests": "pacman" if target == "arch" else "not-run"})
+                 "tests": {"arch": "pacman", "debian": "apt"}.get(target, "not-run")})
     output = Path(directory) / target
     data["assets"] = {name: sha256(output / name) for name in asset_names(target, data["tag"])}
     write_json(output / "manifest.json", data)
@@ -155,7 +157,7 @@ def verify(directory, target):
     if (any(manifest.get(key) != value for key, value in data.items())
             or manifest.get("target") != target
             or manifest.get("source_sha256") != source_hash(directory)
-            or manifest.get("tests") != ("pacman" if target == "arch" else "not-run")
+            or manifest.get("tests") != ({"arch": "pacman", "debian": "apt"}.get(target, "not-run"))
             or set(manifest.get("assets", {})) != set(asset_names(target, data["tag"]))):
         raise ValueError("artifacts do not match this release")
     for name, digest in manifest["assets"].items():
@@ -164,19 +166,21 @@ def verify(directory, target):
     return manifest
 
 
-def unpack_result(archive_path, directory):
+def unpack_result(archive_path, directory, target="arch"):
     """The SSH result contains only fixed-name, regular files; never extract links."""
+    if target not in ("arch", "debian"):
+        raise ValueError("unknown worker target")
     directory = Path(directory)
-    expected = set(asset_names("arch", read_release(directory)["tag"])) | {"manifest.json"}
+    expected = set(asset_names(target, read_release(directory)["tag"])) | {"manifest.json"}
     with tarfile.open(archive_path) as tar:
         members = tar.getmembers()
         if len(members) != len(expected) or {m.name for m in members} != expected or any(not m.isfile() for m in members):
-            raise ValueError("unexpected Arch result archive")
-        output = directory / "arch"
+            raise ValueError(f"unexpected {target} result archive")
+        output = directory / target
         output.mkdir(exist_ok=True)
         for member in members:
             (output / member.name).write_bytes(tar.extractfile(member).read())
-    verify(directory, "arch")
+    verify(directory, target)
 
 
 def check_tap(path, tag):
@@ -192,7 +196,7 @@ def check_tap(path, tag):
 
 def main():
     command, *args = sys.argv[1:]
-    if command == "latest":
+    if command == "versions":
         tags = []
         for line in sys.stdin:
             try:
@@ -200,7 +204,7 @@ def main():
                 tags.append(line.strip())
             except ValueError:
                 continue
-        print(max(tags, key=version) if tags else "")
+        print("\n".join(sorted(tags, key=version)))
     elif command == "directory":
         print(release_directory(*args))
     elif command == "prepare":

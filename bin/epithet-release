@@ -28,15 +28,9 @@ if [ "${EPITHET_RELEASE_LOCKED:-}" != 1 ]; then
 fi
 
 "$PACKAGING_ROOT/scripts/source.sh" fetch
-if [ "$1" = poll ]; then
-    tag=$(git --git-dir="$SOURCE_CACHE" tag --list | "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" latest)
-    [ -n "$tag" ] || { log 'No stable source tag found'; exit 0; }
-    commit=$(git --git-dir="$SOURCE_CACHE" rev-parse --verify "refs/tags/$tag^{commit}")
-else
+if [ "$1" = freebsd-revision ]; then
     tag=$2
     commit=$3
-fi
-if [ "$1" = freebsd-revision ]; then
     "$PACKAGING_ROOT/scripts/source.sh" prepare "$tag" "$commit" "$4"
     release_dir=$("$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" directory "$tag" "$4")
     mkdir -p "$release_dir/logs"
@@ -50,18 +44,6 @@ if [ "$1" = freebsd-revision ]; then
         exit "$code"
     fi
 fi
-if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" pending "$tag" "$commit"; then
-    :
-else
-    code=$?
-    [ "$code" -eq 3 ] || exit "$code"
-    exit 0
-fi
-"$PACKAGING_ROOT/scripts/source.sh" prepare "$tag" "$commit"
-release_dir=$WORK_ROOT/$tag
-log "Release $tag ($commit); logs in $release_dir/logs"
-mkdir -p "$release_dir/logs"
-
 # Each target builds, tests where supported, then publishes its own result.
 # Waiting on one PID does not serialize execution: all jobs start first.
 target() {
@@ -77,20 +59,59 @@ target() {
     fi
     log "Completed $name"
 }
-target freebsd > "$release_dir/logs/freebsd.log" 2>&1 & freebsd_pid=$!
-target arch > "$release_dir/logs/arch.log" 2>&1 & arch_pid=$!
-target macos > "$release_dir/logs/macos.log" 2>&1 & macos_pid=$!
-trap 'kill "$freebsd_pid" "$arch_pid" "$macos_pid" 2>/dev/null || :; wait; exit 130' INT TERM HUP
-result=0
-for entry in "freebsd:$freebsd_pid" "arch:$arch_pid" "macos:$macos_pid"; do
-    name=${entry%%:*}
-    pid=${entry#*:}
-    if wait "$pid"; then
-        log "$name succeeded"
+
+release() {
+    tag=$1
+    commit=$2
+    if "$PYTHON" "$PACKAGING_ROOT/tools/publish.py" pending "$tag" "$commit"; then
+        :
     else
-        result=1
-        log "$name FAILED; see $release_dir/logs/$name.log"
-        tail -n 12 "$release_dir/logs/$name.log" >&2
+        code=$?
+        [ "$code" -eq 3 ] || return "$code"
+        return 0
     fi
-done
-exit "$result"
+    "$PACKAGING_ROOT/scripts/source.sh" prepare "$tag" "$commit" || return $?
+    release_dir=$WORK_ROOT/$tag
+    log "Release $tag ($commit); logs in $release_dir/logs"
+    mkdir -p "$release_dir/logs" || return $?
+
+    target freebsd > "$release_dir/logs/freebsd.log" 2>&1 & freebsd_pid=$!
+    target arch > "$release_dir/logs/arch.log" 2>&1 & arch_pid=$!
+    target debian > "$release_dir/logs/debian.log" 2>&1 & debian_pid=$!
+    target macos > "$release_dir/logs/macos.log" 2>&1 & macos_pid=$!
+    trap 'kill "$freebsd_pid" "$arch_pid" "$debian_pid" "$macos_pid" 2>/dev/null || :; wait; exit 130' INT TERM HUP
+    result=0
+    for entry in "freebsd:$freebsd_pid" "arch:$arch_pid" "debian:$debian_pid" "macos:$macos_pid"; do
+        name=${entry%%:*}
+        pid=${entry#*:}
+        if wait "$pid"; then
+            log "$name succeeded"
+        else
+            result=1
+            log "$name FAILED; see $release_dir/logs/$name.log"
+            tail -n 12 "$release_dir/logs/$name.log" >&2
+        fi
+    done
+    trap - INT TERM HUP
+    return "$result"
+}
+
+if [ "$1" = poll ]; then
+    # Attempt pending stable tags in order, including fixes for earlier failed
+    # releases. Keep a failing exit status even when a later release succeeds.
+    tags=$(git --git-dir="$SOURCE_CACHE" tag --list | "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" versions)
+    [ -n "$tags" ] || { log 'No stable source tag found'; exit 0; }
+    poll_result=0
+    for tag in $tags; do
+        commit=$(git --git-dir="$SOURCE_CACHE" rev-parse --verify "refs/tags/$tag^{commit}")
+        if release "$tag" "$commit"; then
+            :
+        else
+            poll_result=1
+            log "Release $tag FAILED; continuing with newer tags"
+        fi
+    done
+    exit "$poll_result"
+else
+    release "$2" "$3"
+fi

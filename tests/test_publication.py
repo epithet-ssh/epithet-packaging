@@ -303,7 +303,7 @@ class PublicationTests(unittest.TestCase):
 
     def test_shell_targets_start_together_and_failure_does_not_block_others(self):
         # Real coordinator with fake target commands. Each job waits for all
-        # three start markers; serialized execution fails the bounded wait.
+        # four start markers; serialized execution fails the bounded wait.
         root = self.root / 'pipeline'
         for directory in ('bin', 'scripts', 'tools'):
             (root / directory).mkdir(parents=True)
@@ -314,14 +314,14 @@ class PublicationTests(unittest.TestCase):
         source = root / 'scripts/source.sh'
         source.write_text('#!/bin/sh\nexit 0\n')
         source.chmod(0o755)
-        for target in ('freebsd', 'arch', 'macos'):
+        for target in ('freebsd', 'arch', 'debian', 'macos'):
             script = root / f'scripts/{target}.sh'
             script.write_text('''#!/bin/sh
 set -eu
 name=$(basename "$0" .sh)
 touch "$WORK_ROOT/$name.started"
 n=0
-while [ ! -f "$WORK_ROOT/freebsd.started" ] || [ ! -f "$WORK_ROOT/arch.started" ] || [ ! -f "$WORK_ROOT/macos.started" ]; do
+while [ ! -f "$WORK_ROOT/freebsd.started" ] || [ ! -f "$WORK_ROOT/arch.started" ] || [ ! -f "$WORK_ROOT/debian.started" ] || [ ! -f "$WORK_ROOT/macos.started" ]; do
     n=$((n+1)); [ "$n" -lt 100 ] || exit 99
     sleep .02
 done
@@ -336,8 +336,106 @@ touch "$WORK_ROOT/$name.finished"
                                 env=env, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('arch FAILED', result.stdout)
-        for target in ('freebsd', 'macos'):
+        for target in ('freebsd', 'debian', 'macos'):
             self.assertTrue((self.root / f'work/{target}.finished').exists(), result.stdout + result.stderr)
+
+    def test_poll_attempts_newer_tags_after_failure_and_retries_incomplete_targets(self):
+        root = self.root / 'poll-pipeline'
+        for directory in ('bin', 'scripts', 'tools'):
+            (root / directory).mkdir(parents=True)
+        for name in ('bin/epithet-release', 'scripts/common.sh', 'tools/lock.py', 'tools/metadata.py'):
+            shutil.copy(ROOT / name, root / name)
+        source = self.root / 'tags'
+        source.mkdir()
+        self.git(source, 'init')
+        self.git(source, 'config', 'user.name', 'Test')
+        self.git(source, 'config', 'user.email', 'test@example.invalid')
+        self.git(source, 'commit', '--allow-empty', '-m', 'source')
+        for tag in ('v1.2.8', 'v1.2.9', 'v1.2.10', 'v1.3.0-rc1', 'unrelated'):
+            self.git(source, 'tag', tag)
+        work = self.root / 'poll-work'
+        script = root / 'scripts/source.sh'
+        script.write_text('''#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$WORK_ROOT/source.calls"
+if [ "$1" = prepare ] && [ "$2" = "${FAIL_PREPARE:-}" ]; then exit 24; fi
+''')
+        script.chmod(0o755)
+        (root / 'tools/publish.py').write_text('''import os, sys
+from pathlib import Path
+command, *args = sys.argv[1:]
+targets = ('freebsd', 'arch', 'debian', 'macos')
+def version(tag):
+    return tuple(map(int, tag.removeprefix('v').split('.')))
+def published(target, tag):
+    return any(version(path.parent.name) >= version(tag)
+               for path in Path(os.environ['WORK_ROOT']).glob('v*/' + target + '.published'))
+if command == 'pending':
+    directory = Path(os.environ['WORK_ROOT']) / args[0]
+    if args[0] == 'v1.2.8' or all(published(name, args[0]) for name in targets):
+        raise SystemExit(3)
+elif command == 'needed':
+    if published(args[0], Path(args[1]).name):
+        raise SystemExit(3)
+else:
+    (Path(args[0]) / (command + '.published')).touch()
+''')
+        for target in ('freebsd', 'arch', 'debian', 'macos'):
+            script = root / f'scripts/{target}.sh'
+            script.write_text('''#!/bin/sh
+set -eu
+name=$(basename "$0" .sh)
+tag=$(basename "$1")
+if [ "$name" = debian ] && [ "$tag" = "${FAIL_TAG:-}" ]; then exit 23; fi
+printf '%s %s\\n' "$tag" "$name" >> "$WORK_ROOT/build.calls"
+''')
+            script.chmod(0o755)
+        env = dict(os.environ, WORK_ROOT=str(work), SOURCE_CACHE=str(source / '.git'),
+                   PYTHON=sys.executable, EPITHET_PACKAGING_CONFIG=str(self.root / 'absent'))
+        env.pop('PACKAGING_ROOT', None)
+        command = ['sh', str(root / 'bin/epithet-release'), 'poll']
+        failed = subprocess.run(command, env=dict(env, FAIL_TAG='v1.2.9'), capture_output=True, text=True)
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertIn('Release v1.2.9 FAILED; continuing with newer tags', failed.stdout)
+        self.assertFalse((work / 'v1.2.9/debian.published').exists())
+        for target in ('freebsd', 'arch', 'debian', 'macos'):
+            self.assertTrue((work / f'v1.2.10/{target}.published').exists())
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = (work / 'source.calls').read_text().splitlines()
+        self.assertEqual([line.split()[1] for line in calls if line.startswith('prepare ')],
+                         ['v1.2.9', 'v1.2.10'])
+        self.assertEqual(calls.count('fetch'), 2)
+        builds = (work / 'build.calls').read_text().splitlines()
+        self.assertEqual(len(builds), 7)
+        self.assertTrue(all(line.startswith('v1.2.9 ') for line in builds[:3]))
+        self.assertTrue(all(line.startswith('v1.2.10 ') for line in builds[3:7]))
+        self.assertFalse((work / 'v1.2.9/debian.published').exists())
+        idle = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(idle.returncode, 0, idle.stdout + idle.stderr)
+        self.assertEqual((work / 'build.calls').read_text().splitlines(), builds)
+
+        # Preparation failure must not start targets against stale inputs,
+        # and must not prevent the next tag from building.
+        for tag in ('v1.2.11', 'v1.2.12'):
+            self.git(source, 'tag', tag)
+        prepared = subprocess.run(command, env=dict(env, FAIL_PREPARE='v1.2.11'),
+                                  capture_output=True, text=True)
+        self.assertEqual(prepared.returncode, 1, prepared.stdout + prepared.stderr)
+        self.assertFalse((work / 'v1.2.11').exists())
+        for target in ('freebsd', 'arch', 'debian', 'macos'):
+            self.assertTrue((work / f'v1.2.12/{target}.published').exists())
+
+        # An incomplete latest release still retries only its missing target.
+        self.git(source, 'tag', 'v1.2.13')
+        failed = subprocess.run(command, env=dict(env, FAIL_TAG='v1.2.13'),
+                                capture_output=True, text=True)
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        before_retry = (work / 'build.calls').read_text().splitlines()
+        retry = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+        self.assertEqual((work / 'build.calls').read_text().splitlines(),
+                         before_retry + ['v1.2.13 debian'])
 
     def test_tap_retry_pushes_existing_commit_without_duplicate_commit(self):
         origin = self.root / 'tap.git'

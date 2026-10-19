@@ -14,7 +14,7 @@ trap 'rm -rf "$work"' EXIT
 trap 'exit 130' HUP INT TERM
 printf '%s\n' "$ARCH_IMAGE" > "$work/arch-image"
 tar --exclude=__pycache__ -cf "$work/input.tar" \
-    -C "$PACKAGING_ROOT" bin scripts tools arch freebsd macos tests \
+    -C "$PACKAGING_ROOT" bin scripts tools arch debian freebsd macos tests \
     -C "$RELEASE_DIR" release.json source.tar.gz source.sha256 \
     -C "$work" arch-image
 log "Running Arch build and package tests on configured Linux VM"

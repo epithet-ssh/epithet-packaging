@@ -32,7 +32,7 @@ Inside the builder, install Poudriere, Git, Go, Python 3.11+, GnuPG, and SSH.
 Use a Go version satisfying the source's go.mod. Python needs no third-party
 modules. Set `PYTHON` in the packaging config if the interpreter is versioned
 (for example, `/usr/local/bin/python3.11`) and `python3` is not installed.
-Install a reviewed snapshot containing `bin`, `scripts`, `tools`, `arch`,
+Install a reviewed snapshot containing `bin`, `scripts`, `tools`, `arch`, `debian`,
 `freebsd`, `macos`, and `tests` under `/usr/local/libexec/epithet-packaging`.
 Preserve executable bits and make the snapshot root-owned and not group/world
 writable. Install subsequent snapshots together while release jobs are stopped.
@@ -92,6 +92,14 @@ production package-signing key or tap credential. Tests generate disposable
 signing keys inside the container. `ARCH_IMAGE` can use an operator-pinned image
 reference; the build updates Arch's package set with pacman.
 
+For Debian, install `scripts/debian-worker.sh` on the same VM as
+`/usr/local/libexec/epithet-debian-worker`, executable and administrator-owned.
+Set `DEBIAN_SSH_TARGET` to its SSH alias and `DEBIAN_IMAGE` to the reviewed
+amd64 Debian/Go image (the sample uses `golang:1.26-trixie`). The independent
+Debian job uses the same archive-over-SSH contract, disposable container lifecycle,
+and separation from production keys. Its container runs Go and native apt tests.
+It can run alongside Arch on the same VM.
+
 The VM is persistent infrastructure; maintain its OS/Docker normally. The scripts
 do not administer bhyve or the VM from the builder jail.
 
@@ -106,12 +114,37 @@ public key as `$PUBLIC_ROOT/keys/epithet-arch.asc`. FreeBSD publication exports
 restricted to the builder. Package installation fetches these public keys over
 HTTPS and trusts TLS for bootstrap; subsequent package updates require signatures.
 
+For Debian, configure an unattended OpenPGP signing key in
+`DEBIAN_GNUPG_HOME` and its full fingerprint in `DEBIAN_KEY_FINGERPRINT`.
+These may refer to an existing operator-managed package-signing key if desired.
+Export its public key for the Debian installation instructions:
+
+```sh
+. /usr/local/etc/epithet-packaging.conf
+install -d -m 0755 "$PUBLIC_ROOT/keys"
+gpg --batch --homedir "$DEBIAN_GNUPG_HOME" --armor --export \
+  "$DEBIAN_KEY_FINGERPRINT" > "$PUBLIC_ROOT/keys/epithet-debian.asc"
+chmod 0644 "$PUBLIC_ROOT/keys/epithet-debian.asc"
+```
+
+The publisher produces `/debian/InRelease`, `/debian/Packages`, and retained
+`.deb` files. No web-server routing changes are needed with the provided static
+file-server configuration.
+
 Configure Git author identity and noninteractive push credentials for the
 existing `TAP_BRANCH` at `TAP_URL`. `TAP_CHECKOUT` is dedicated to this publisher.
 Disable the previous GoReleaser Homebrew writer at cutover. Package builds and
 the tap need no GitHub APIs: ordinary Git transport is sufficient.
 
 ## First release
+
+When adding Debian to an existing installation, pause polling, install the
+updated packaging snapshot and Debian worker, and configure the Debian signing
+inputs. Seed Debian at the currently published source tag in a separate workspace
+using the existing source preparation, Debian build, and publication scripts.
+Keep the original release workspace frozen: its other platforms have already
+published. After all platforms report the same source tag, resume polling; new
+tags use the normal shared release pipeline.
 
 After review and provisioning, select a new stable source tag and its full
 commit, then observe one release inside the builder:
@@ -121,7 +154,7 @@ commit, then observe one release inside the builder:
 /usr/local/libexec/epithet-packaging/bin/epithet-release status
 ```
 
-Verify all three target logs, the real pacman tests, native Poudriere/package
+Verify all four target logs, the real pacman and apt tests, native Poudriere/package
 checks, the formula URLs/hashes, and HTTPS installs from clean clients. The
 FreeBSD first-run upgrade check requires an existing published package. macOS
 installation/service testing is deliberately manual in v1. Test Arch cloud-init
@@ -135,14 +168,19 @@ the published version for each target. Each platform publishes independently;
 a release returns nonzero if any target fails, even if the others succeed.
 
 An external CI or event handler can invoke that same command with the exact tag
-and commit; no inbound handler is implemented here. To discover the newest stable `vX.Y.Z` source tag,
+and commit; no inbound handler is implemented here. To discover and process all
+pending stable `vX.Y.Z` source tags in version order,
 run:
 
 ```sh
 /usr/local/libexec/epithet-packaging/bin/epithet-release poll
 ```
 
-Polling retries incomplete targets and skips published versions. Optionally
+Polling retries incomplete targets and skips published versions. If several tags
+arrive between polls, each is attempted in order. A failed release is logged and
+does not block newer tags, so a corrected release can publish. The poll exits
+nonzero if any attempt fails. Once a newer version is published for a target,
+older versions are skipped to prevent downgrades. Optionally
 install [crontab](crontab) in the builder's system crontab for a one-minute
 source-tag fallback. Overlapping runs fail at the lock without starting a
 second build. No GitHub workflow schedule is
@@ -159,15 +197,15 @@ installation's existing monitoring. There is no notification service here.
 Rerun the same `release` command or let the next poll retry. Each workspace
 freezes the source commit and installed recipe digest. Artifacts carry hashes
 and a test receipt; a retry verifies completed artifacts before reusing them.
-Arch and macOS do not rebuild merely because publication failed.
+Arch, Debian, and macOS do not rebuild merely because publication failed.
 
 A changed recipe cannot silently rebuild the same frozen release. Use a new
 source version or a FreeBSD packaging revision for a packaging correction. An entirely unpublished failed
 workspace may be removed explicitly before retrying with revised recipes. Do
 not remove a workspace after any target has published it.
 
-Source releases use Arch `pkgrel=1` and FreeBSD `PORTREVISION=0`. To publish a
-FreeBSD packaging correction against the same source tag and commit, install
+Source releases use Arch `pkgrel=1`, Debian revision `-1`, and FreeBSD
+`PORTREVISION=0`. To publish a FreeBSD packaging correction against the same source tag and commit, install
 the reviewed recipe update while release jobs are stopped, then run:
 
 ```sh
@@ -182,20 +220,24 @@ A changed recipe for an already frozen revision requires a higher revision.
 Polling recognizes the revised package and does not replace it with revision zero.
 A newer source release starts at revision zero again.
 
-Arch package-only revisions, additional architectures, AUR, Debian/Ubuntu, and
-RPM publication remain outside the current implementation.
+Arch/Debian package-only revisions, additional architectures, AUR, Ubuntu-specific
+validation, and RPM publication remain outside the current implementation.
 
 ## Retention and rollback
 
-Arch retains package filenames and metadata generations. A single pointer changes
-its active database and signatures; HTTP requests straddling a promotion can
-observe a mismatched pair, which pacman rejects until a refresh. macOS archives
+Arch and Debian retain package filenames and metadata generations. A single
+pointer changes each active index and its signatures; HTTP requests straddling
+a promotion can observe inconsistent metadata, which the package manager rejects
+until a refresh. macOS archives
 are retained before the tap push, allowing safe retry. No target downgrades
 implicitly, and no automatic artifact/workspace pruning is configured.
 
 Pause the schedule before rollback. FreeBSD retains its explicit rollback
 command; Arch can select a retained `generations/vX.Y.Z` by atomically replacing
-`current` with a relative symlink. Homebrew rollback is an explicit tap change.
+`current` with a relative symlink. Debian uses the same `generations/vX.Y.Z`
+and `current` layout under `$PUBLIC_ROOT/debian`; apt verifies package hashes
+through `InRelease` and rejects inconsistent metadata during promotion. Homebrew
+rollback is an explicit tap change.
 Keep old blobs: clients may still reference them. None of these metadata changes
 forces installed clients to downgrade. Resume scheduling only when its newest
 stable tag is the version intended for publication.

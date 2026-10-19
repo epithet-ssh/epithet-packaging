@@ -5,6 +5,7 @@ The shell scripts own execution. This helper owns archive validation, signing,
 immutable files, and atomic metadata updates. No forge APIs are involved.
 """
 import argparse
+import email.utils
 import json
 import logging
 import os
@@ -153,6 +154,98 @@ def publish_arch(config, manifest, work):
     LOG.info("published Arch %s", manifest["tag"])
 
 
+def inspect_debian_index(path, manifest, work):
+    """Require one apt record naming the exact package verified by the receipt."""
+    fields = {}
+    previous = None
+    for line in path.read_text().strip().splitlines():
+        if line.startswith((' ', '\t')) and previous is not None:
+            fields[previous] += '\n' + line
+            continue
+        key, separator, value = line.partition(': ')
+        if not separator or key in fields:
+            raise ValueError("invalid or multiple Debian package records")
+        fields[key] = value
+        previous = key
+    package = f"epithet_{manifest['tag'][1:]}-1_amd64.deb"
+    expected = {"Package": "epithet", "Version": manifest['tag'][1:] + '-1',
+                "Architecture": "amd64", "Filename": './' + package,
+                "Size": str((work / package).stat().st_size),
+                "SHA256": manifest['assets'][package]}
+    if any(fields.get(key) != value for key, value in expected.items()):
+        raise ValueError("Debian index does not describe the expected package")
+
+
+def debian_gpg(config):
+    fingerprint = config['debian_key_fingerprint']
+    if not re.fullmatch(r'[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64}', fingerprint):
+        raise ValueError('debian_key_fingerprint must be a full OpenPGP fingerprint')
+    return ['gpg', '--batch', '--homedir', config['debian_gnupg_home'],
+            '--local-user', fingerprint]
+
+
+def sign_debian(config, stage):
+    args = debian_gpg(config)
+    run(*args, '--digest-algo', 'SHA256', '--output', stage / 'InRelease',
+        '--clearsign', stage / 'Release')
+    verify_debian_signature(config, stage)
+
+
+def verify_debian_signature(config, directory):
+    # Decryption verifies a clearsigned message and returns its signed payload.
+    result = run(*debian_gpg(config), '--decrypt', directory / 'InRelease', stdout=subprocess.PIPE)
+    if result.stdout != (directory / 'Release').read_bytes():
+        raise ValueError('Debian signature does not cover the expected Release')
+
+
+def publish_debian(config, manifest, work):
+    """Publish a signed flat apt repository, retaining every immutable .deb URL.
+
+    The builder needs only Python and GnuPG; Debian tools generate Packages in
+    the worker. One pointer promotes the index and its signed hash together.
+    A client spanning promotion can reject a hash mismatch and refresh safely.
+    """
+    root = Path(config['public_root']) / 'debian'
+    root.mkdir(parents=True, exist_ok=True)
+    if not should_publish(current(config, 'debian')[0], manifest['tag']):
+        return
+    inspect_debian_index(work / 'Packages', manifest, work)
+    package = f"epithet_{manifest['tag'][1:]}-1_amd64.deb"
+    with tempfile.TemporaryDirectory(prefix='.stage-', dir=root) as staging:
+        stage = Path(staging)
+        stage.chmod(0o755)
+        for name in manifest['assets']:
+            shutil.copyfile(work / name, stage / name)
+            (stage / name).chmod(0o644)
+        # Use the frozen source timestamp so a retry produces the same Release.
+        date = email.utils.formatdate(manifest['source_epoch'], usegmt=True)
+        (stage / 'Release').write_text(
+            f'Origin: Epithet\nLabel: Epithet\nArchitectures: amd64\nDate: {date}\n'
+            f'SHA256:\n {sha256(stage / "Packages")} {(stage / "Packages").stat().st_size} Packages\n')
+        sign_debian(config, stage)
+        immutable_copy(stage / package, root / package)
+        (stage / package).unlink()
+        (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        for path in stage.iterdir():
+            path.chmod(0o644)
+        generations = root / 'generations'
+        generations.mkdir(exist_ok=True)
+        generation = generations / manifest['tag']
+        if generation.exists():
+            if json.loads((generation / 'manifest.json').read_text()) != manifest:
+                raise ValueError('retained Debian generation has different inputs')
+            for name in ('Packages', 'Release'):
+                if sha256(generation / name) != sha256(stage / name):
+                    raise ValueError('retained Debian generation is damaged')
+            verify_debian_signature(config, generation)
+        else:
+            os.rename(stage, generation)
+        for name in ('Packages', 'Release', 'InRelease'):
+            switch(root / name, f'current/{name}')
+        switch(root / 'current', f"generations/{manifest['tag']}")
+    LOG.info('published Debian %s', manifest['tag'])
+
+
 def current(config, target):
     root = Path(config["public_root"])
     if target == "freebsd":
@@ -160,7 +253,7 @@ def current(config, target):
         tag = "v" + latest.resolve().name.split("_")[0] if latest.is_symlink() else None
         identity = latest / "release.json"
     else:
-        latest = root / ("arch/x86_64" if target == "arch" else "macos") / "current"
+        latest = root / ("arch/x86_64" if target == "arch" else target) / "current"
         identity = latest / "manifest.json"
         tag = json.loads(identity.read_text())["tag"] if identity.exists() else None
     return tag, json.loads(identity.read_text()) if identity.exists() else None
@@ -191,7 +284,7 @@ def pending(config, tag, commit):
     """An idle poll need not reopen a completed release after recipe updates."""
     version(tag)
     result = False
-    for target in ("freebsd", "arch", "macos"):
+    for target in ("freebsd", "arch", "debian", "macos"):
         published, identity = current(config, target)
         if published is None or version(published) < version(tag):
             result = True
@@ -250,6 +343,8 @@ def publish_macos(config, manifest, work):
 
 def environment_config():
     return {"public_root": os.environ["PUBLIC_ROOT"], "freebsd_abi": os.environ.get("ABI", "FreeBSD:15:amd64"),
+            "debian_gnupg_home": os.environ.get("DEBIAN_GNUPG_HOME", ""),
+            "debian_key_fingerprint": os.environ.get("DEBIAN_KEY_FINGERPRINT", ""),
             "arch_gnupg_home": os.environ.get("ARCH_GNUPG_HOME", ""),
             "arch_key_fingerprint": os.environ.get("ARCH_KEY_FINGERPRINT", ""),
             "repository_url": os.environ.get("REPOSITORY_URL", ""), "homepage": os.environ.get("PROJECT_HOMEPAGE", "")}
@@ -257,7 +352,7 @@ def environment_config():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("arch", "freebsd", "macos", "needed", "pending", "status"))
+    parser.add_argument("command", choices=("arch", "debian", "freebsd", "macos", "needed", "pending", "status"))
     parser.add_argument("arguments", nargs="*")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -267,7 +362,7 @@ def main():
             raise SystemExit(3)
         return
     if args.command == "status":
-        state = {target: current(config, target)[0] for target in ("freebsd", "arch", "macos")}
+        state = {target: current(config, target)[0] for target in ("freebsd", "arch", "debian", "macos")}
         revision = freebsd_revision(config)
         if state["freebsd"] and revision:
             state["freebsd"] += f"_{revision}"
@@ -289,6 +384,8 @@ def main():
         return
     if args.command == "arch":
         publish_arch(config, manifest, directory / "arch")
+    elif args.command == "debian":
+        publish_debian(config, manifest, directory / "debian")
     else:
         publish_macos(config, manifest, directory / "macos")
 
