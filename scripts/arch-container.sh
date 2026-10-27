@@ -15,8 +15,8 @@ export GOPROXY=off
 export SOURCE_DATE_EPOCH=$SOURCE_EPOCH
 (
     cd source
-    go test ./...
-    go build -trimpath -buildvcs=false \
+    sh "$PACKAGING_ROOT/freebsd/port/files/go.sh" go test ./...
+    sh "$PACKAGING_ROOT/freebsd/port/files/go.sh" go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X main.version=$VERSION -X main.commit=$SOURCE_COMMIT -X main.date=$BUILD_DATE" \
         -o /work/dist/epithet ./cmd/epithet
 )

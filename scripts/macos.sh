@@ -16,7 +16,7 @@ for arch in amd64 arm64; do
     log "Cross-compiling macOS $arch"
     mkdir "$work/$arch"
     (cd "$work/source" && CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" GOPROXY=off \
-        go build -mod=vendor -trimpath -buildvcs=false \
+        sh "$PACKAGING_ROOT/freebsd/port/files/go.sh" go build -mod=vendor -trimpath -buildvcs=false \
         -ldflags "-s -w -X main.version=$VERSION -X main.commit=$SOURCE_COMMIT -X main.date=$BUILD_DATE" \
         -o "$work/$arch/epithet" ./cmd/epithet)
     cp "$work/source/LICENSE-2.0.txt" "$work/$arch/LICENSE-2.0.txt"

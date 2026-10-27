@@ -17,8 +17,8 @@ ARCH_KEY_FINGERPRINT=
 
 # Debian can use the same Linux VM, with its own installed worker.
 DEBIAN_SSH_TARGET=
-# Includes a Go toolchain meeting the source go.mod requirement.
-DEBIAN_IMAGE=golang:1.26-trixie
+# Includes a patched Go toolchain; see ops/README.md for the required versions.
+DEBIAN_IMAGE=golang:1.26.10-trixie
 DEBIAN_GNUPG_HOME=/var/db/epithet-packaging/debian-gnupg
 DEBIAN_KEY_FINGERPRINT=
 

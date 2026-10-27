@@ -29,7 +29,7 @@ prepare)
     tar -xf "$work/source.tar" -C "$work/source"
     # Dependencies are gathered once for all OS targets and protected by go.sum.
     # Builders use the resulting vendor tree, not forge-specific archive URLs.
-    (cd "$work/source" && go mod vendor)
+    (cd "$work/source" && sh "$PACKAGING_ROOT/freebsd/port/files/go.sh" go mod vendor)
     "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" archive "$work/source" "$work/source.tar.gz" "$SOURCE_EPOCH"
     "$PYTHON" "$PACKAGING_ROOT/tools/metadata.py" seal-source "$RELEASE_DIR" "$work/source.tar.gz"
     ;;
