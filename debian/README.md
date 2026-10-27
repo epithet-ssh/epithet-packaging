@@ -53,7 +53,7 @@ the repository above for subsequent updates.
 The release coordinator runs `scripts/debian.sh` independently of the other
 platform jobs. The Linux VM's installed `epithet-debian-worker` starts a fresh
 amd64 Debian container containing Go. The default image is
-`golang:1.26.10-trixie`; use a reviewed image satisfying the source's `go.mod`.
+`golang:1.27.3-trixie`; use a reviewed image satisfying the source's `go.mod`.
 
 The container tests and builds the frozen, vendored application source, packages
 it using the pinned nFPM tool, and generates `Packages` with `dpkg-scanpackages`.

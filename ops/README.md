@@ -32,7 +32,12 @@ Inside the builder, install Poudriere, Git, Go, Python 3.11+, GnuPG, and SSH.
 Use a stable Go compiler satisfying the source's go.mod and containing the
 [eMudhra mitigation](https://go.dev/blog/emudhra-incident): Go 1.26.10 or newer
 on the 1.26 branch, Go 1.27.3 or newer on the 1.27 branch, or a later stable
-release. Packaging checks the installed compiler and disables automatic
+release. Epithet 0.43.2 additionally requires Go 1.27.3 through its `go.mod`,
+so its builder and container images must use at least that version. Inside the
+FreeBSD builder, install `pkg install go127`; the sample configuration prepends
+`/usr/local/go127/bin` to `PATH` so the unversioned `go` package cannot select
+an older compiler.
+Packaging checks the installed compiler and disables automatic
 Go toolchain switching for source preparation and Epithet builds/tests.
 Update both the builder's installed Go (used for source preparation and macOS)
 and the Poudriere ports tree/compiler package (used for FreeBSD). Arch installs
@@ -108,7 +113,7 @@ reference; the build updates Arch's package set with pacman.
 For Debian, install `scripts/debian-worker.sh` on the same VM as
 `/usr/local/libexec/epithet-debian-worker`, executable and administrator-owned.
 Set `DEBIAN_SSH_TARGET` to its SSH alias and `DEBIAN_IMAGE` to the reviewed
-amd64 Debian/Go image (the sample uses `golang:1.26.10-trixie`). The independent
+amd64 Debian/Go image (the sample uses `golang:1.27.3-trixie`). The independent
 Debian job uses the same archive-over-SSH contract, disposable container lifecycle,
 and separation from production keys. Its container runs Go and native apt tests.
 It can run alongside Arch on the same VM.

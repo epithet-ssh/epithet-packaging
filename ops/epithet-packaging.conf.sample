@@ -1,5 +1,8 @@
 # Trusted root-owned shell configuration. Install mode 0600 as
 # /usr/local/etc/epithet-packaging.conf. All paths must be absolute.
+# Select the versioned FreeBSD compiler; the unversioned go package may lag.
+PATH=/usr/local/go127/bin:$PATH
+
 # Source and tap can be hosted by any Git server; fill in deployment inputs.
 SOURCE_URL=
 SOURCE_CACHE=/var/db/epithet-packaging/source.git
@@ -18,7 +21,7 @@ ARCH_KEY_FINGERPRINT=
 # Debian can use the same Linux VM, with its own installed worker.
 DEBIAN_SSH_TARGET=
 # Includes a patched Go toolchain; see ops/README.md for the required versions.
-DEBIAN_IMAGE=golang:1.26.10-trixie
+DEBIAN_IMAGE=golang:1.27.3-trixie
 DEBIAN_GNUPG_HOME=/var/db/epithet-packaging/debian-gnupg
 DEBIAN_KEY_FINGERPRINT=
 
